@@ -35,7 +35,7 @@ RUN pip install --upgrade pip \
 ARG PRELOAD_MODEL=true
 RUN mkdir -p /app/model-cache /data \
     && if [ "$PRELOAD_MODEL" = "true" ]; then \
-         python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"; \
+         mirror.com python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"; \
        fi
 
 COPY . .
