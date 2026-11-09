@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""检索服务：把问题转为向量并从 Chroma 取回带来源的片段。"""
+"""检索服务：外部 Embedding（可选）+ 内存切片索引。
+
+没有 Embedding API Key 或 API 失败时，使用内存中的关键词检索；不加载本地模型。
+"""
 
 from __future__ import annotations
 
@@ -106,22 +109,12 @@ def search(project_id: str, query: str) -> List[Dict[str, Any]]:
     if document_store.count_indexed(project_id) == 0:
         return []
 
-    try:
-        query_vector = embedding_service.embed_query(query)
-    except ApiError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        log.exception("查询向量化失败")
-        raise ApiError(
-            "EMBEDDING_FAILED",
-            f"问题向量化失败：{type(exc).__name__}。",
-            502,
-        ) from exc
-
+    query_vector = embedding_service.try_embed_query(query)
     try:
         matches = vector_store.query_chunks(
             project_id=project_id,
             query_embedding=query_vector,
+            query_text=query,
             top_k=RAG_TOP_K,
             min_score=RAG_MIN_SCORE,
         )

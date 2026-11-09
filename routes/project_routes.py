@@ -16,7 +16,7 @@ from services import (
     source_service,
     template_service,
 )
-from services.embedding_service import model_name
+from services.embedding_service import mode as embedding_mode, model_name
 from services.stage_prompts import STAGES
 
 
@@ -34,6 +34,7 @@ def health():
             "model": DEEPSEEK_MODEL if mode == "deepseek" else "local-demo",
             "has_api_key": llm_service.has_api_key(),
             "embedding_model": model_name(),
+            "embedding_mode": embedding_mode(),
             "stages": STAGES,
         }
     )

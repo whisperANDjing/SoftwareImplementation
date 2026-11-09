@@ -43,7 +43,10 @@ UPLOAD_DIR = STORAGE_DIR / "uploads"
 DOCUMENTS_FILE = STORAGE_DIR / "documents.json"
 ASSISTANT_HISTORY_FILE = STORAGE_DIR / "assistant_history.json"
 DELETIONS_DIR = STORAGE_DIR / "deletions"
-CHROMA_DIR = Path(_env_str("CHROMA_DIR", str(STORAGE_DIR / "chroma")))
+# 文档切片的内存索引快照；检索时全部在内存中完成，不使用 Chroma。
+VECTOR_INDEX_FILE = Path(
+    _env_str("VECTOR_INDEX_FILE", str(STORAGE_DIR / "vector_index.json"))
+)
 
 # DeepSeek
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -57,13 +60,17 @@ MAX_HISTORY_MESSAGES = 20
 MAX_HISTORY_CHARS = 30_000
 ASSISTANT_MAX_HISTORY_MESSAGES = 40
 
-# RAG
-# 默认使用国内可访问的 Hugging Face 镜像；如需官方源可显式设置
-# HF_ENDPOINT=https://huggingface.co。
-HF_ENDPOINT = _env_str("HF_ENDPOINT", "https://hf-mirror.com")
-HF_CACHE_DIR = Path(_env_str("HF_HOME", str(STORAGE_DIR / "hf-cache")))
-EMBEDDING_MODEL = _env_str("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
-CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "aps_documents")
+# RAG：外部 OpenAI-compatible Embedding API（不加载本地模型、不使用 Chroma）
+EMBEDDING_API_BASE = _env_str(
+    "EMBEDDING_API_BASE", "https://api.siliconflow.cn/v1"
+)
+EMBEDDING_API_KEY = (
+    os.getenv("EMBEDDING_API_KEY")
+    or os.getenv("SILICONFLOW_API_KEY")
+    or ""
+).strip()
+EMBEDDING_MODEL = _env_str("EMBEDDING_MODEL", "BAAI/bge-m3")
+EMBEDDING_TIMEOUT = _env_int("EMBEDDING_TIMEOUT", 60)
 RAG_TOP_K = _env_int("RAG_TOP_K", 5)
 RAG_MIN_SCORE = _env_float("RAG_MIN_SCORE", 0.35)
 # 没有关键词命中时，仅接受高于该阈值的语义结果，避免弱相关片段被当成答案。

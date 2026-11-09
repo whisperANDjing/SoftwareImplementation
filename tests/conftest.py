@@ -17,7 +17,8 @@ if str(ROOT) not in sys.path:
 
 # 测试数据目录必须与本地真实数据隔离，避免测试写入 projects.json / Chroma。
 os.environ["APS_DATA_DIR"] = tempfile.mkdtemp(prefix="aps-tests-")
-os.environ["CHROMA_DIR"] = str(Path(os.environ["APS_DATA_DIR"]) / "chroma")
+os.environ["EMBEDDING_API_KEY"] = ""
+os.environ["SILICONFLOW_API_KEY"] = ""
 
 
 @pytest.fixture

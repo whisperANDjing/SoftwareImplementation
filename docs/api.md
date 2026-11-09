@@ -1,8 +1,8 @@
 # APS 实施顾问 AI 工作台 · RAG 改造 API 契约
 
-> 版本：`v1.8`  
-> 状态：**全生命周期工作台四模块已实现**（2026-11-09）  
-> 适用范围：RAG 改造第五阶段及首页仪表盘  
+> 版本：`v1.9`  
+> 状态：**全生命周期工作台 + 外部 Embedding / 内存索引部署优化**（2026-11-09）  
+> 适用范围：全生命周期工作台与外部 Embedding / 内存索引  
 > 最后更新：2026-11-09
 
 ---
@@ -11,7 +11,7 @@
 
 本次改造把 `/api/chat` 从“按阶段拼提示词”升级为“检索增强生成（RAG）”：
 
-1. 文档上传后进入解析、切片、向量化、Chroma 入库管道。
+1. 文档上传后进入解析、切片、可选外部向量化、内存索引管道。
 2. 对话时先按 `project_id` 检索相关片段，再拼系统提示词、检索上下文、对话历史和用户问题。
 3. 回答必须可追溯：返回 `sources`，正文使用 `[1]`、`[2]` 引用来源。
 4. 检索不到可靠内容时，明确回答“当前知识库中没有相关信息”，不编造。
@@ -364,7 +364,7 @@ Content-Type: application/json
 | `LLM_RATE_LIMITED` | 429 | 上游限流 |
 | `LLM_UPSTREAM_ERROR` | 502 | DeepSeek 其它错误 |
 | `EMBEDDING_FAILED` | 502 | 查询向量化失败 |
-| `VECTOR_STORE_FAILED` | 500 | Chroma 读取失败 |
+| `VECTOR_STORE_FAILED` | 500 | 内存索引读取失败 |
 | `INTERNAL_ERROR` | 500 | 未捕获异常 |
 
 `rag` 模式无检索结果**不返回错误**，返回 `200` 和固定答复。
@@ -423,7 +423,7 @@ data: {"ok":false,"code":"LLM_TIMEOUT","message":"……","data":null,"error":"�
 
 ### 4.2 POST /api/upload
 
-上传文档，完成解析、切片、向量化并写入 Chroma；同时生成阶段相关摘要。
+上传文档，完成解析、切片、可选外部向量化，并写入内存切片索引；同时生成阶段相关摘要。
 
 #### 4.2.1 请求
 
@@ -459,17 +459,18 @@ Content-Type: multipart/form-data
 2. **切片**
    - 优先按标题/段落/表格行组切片，单切片目标 600–900 字符，重叠约 100 字符。
    - 每个切片必须携带来源元数据：文件名、`doc_id`、`stage`；PDF 带页码，Excel 带 sheet + 行号，DOCX 带段落范围。
-3. **向量化**
-   - 使用本地 `sentence-transformers` 模型 `BAAI/bge-small-zh-v1.5`（512 维，CPU 可运行，归一化后写入）。
-   - 不依赖 DeepSeek 嵌入接口；选择本地模型是为了不增加额外 API Key 和外部部署依赖。
-4. **写入 Chroma**
-   - 本地持久化目录：`storage/chroma/`。
-   - 单 collection：`aps_documents`，用 `project_id` 元数据过滤。
+3. **向量化（外部 API）**
+   - 配置了 `EMBEDDING_API_KEY` 时，调用 OpenAI-compatible Embedding API。
+   - 默认接口：`https://api.siliconflow.cn/v1`，默认模型：`BAAI/bge-m3`。
+   - 未配置 Key 时跳过向量化，使用内存关键词检索兜底。
+4. **写入内存切片索引**
+   - 切片常驻内存，并快照到 `storage/vector_index.json` 以便进程重启恢复。
+   - 不使用 Chroma 或本地向量数据库。
 5. **摘要**
    - 按 `stage` 调 DeepSeek 生成结构化摘要，返回 Markdown。
    - 摘要生成失败不阻断入库：使用抽取式摘要，返回 `warnings`。
 6. **登记**
-   - 文档状态登记在本地 `storage/documents.json`，与 Chroma 分离，便于列表查询和失败重试。
+   - 文档状态登记在本地 `storage/documents.json`，与内存索引分离，便于列表查询和失败重试。
 
 #### 4.2.3 响应
 
@@ -521,8 +522,8 @@ HTTP `201 Created`
 
 - 解析失败、空文档、扫描件：不建立可检索切片；返回对应 `422` 错误。
 - 若已生成 `doc_id`，错误响应 `data` 中返回 `doc_id`，文档列表状态为 `failed`，带 `error` 详情。
-- 向量化失败：返回 `502 EMBEDDING_FAILED`，文档状态 `failed`。
-- Chroma 写入失败：返回 `500 VECTOR_STORE_FAILED`，文档状态 `failed`。
+- 外部向量化失败：返回 `502 EMBEDDING_FAILED`，文档状态 `failed`。
+- 内存索引快照写入失败：返回 `500 VECTOR_STORE_FAILED`，文档状态 `failed`。
 - 摘要失败：不回滚入库，返回 `201`，`warnings` 中包含 `SUMMARY_FALLBACK`。
 
 #### 4.2.5 错误码
@@ -538,8 +539,8 @@ HTTP `201 Created`
 | `PARSE_FAILED` | 422 | 文件损坏、加密、解析异常 |
 | `EMPTY_DOCUMENT` | 422 | 解析后无可入库文本 |
 | `SCANNED_PDF_UNSUPPORTED` | 422 | PDF 无文本层，需要 OCR，明确不支持 |
-| `EMBEDDING_FAILED` | 502 | 嵌入模型加载或向量化失败 |
-| `VECTOR_STORE_FAILED` | 500 | Chroma 写入失败 |
+| `EMBEDDING_FAILED` | 502 | 外部 Embedding 调用失败 |
+| `VECTOR_STORE_FAILED` | 500 | 内存索引快照写入失败 |
 | `INTERNAL_ERROR` | 500 | 未捕获异常 |
 
 错误响应示例：
@@ -624,7 +625,7 @@ GET /api/documents/prj_ac7bcc665f48
 | code | HTTP | 说明 |
 | --- | --- | --- |
 | `PROJECT_NOT_FOUND` | 404 | 项目不存在 |
-| `VECTOR_STORE_FAILED` | 500 | 读取文档登记或向量库失败 |
+| `VECTOR_STORE_FAILED` | 500 | 读取文档登记或内存索引失败 |
 | `INTERNAL_ERROR` | 500 | 未捕获异常 |
 
 ---
@@ -831,7 +832,7 @@ Content-Type: application/json
 1. 默认按 `answer_mode="rag"` 调同一个 `retrieval_service` 检索当前项目知识库。
 2. 检索命中：返回 `sources`，要求 DeepSeek 使用 `[n]` 引用；无 Key 时使用本地抽取式回答。
 3. 检索为空或失败：不返回“当前知识库中没有相关信息”作为最终答案，而是继续调用通用大模型回答；`sources: []`、`grounded: false`。无 Key 时使用本地通用兜底。
-4. 历史只从 `storage/assistant_history.json` 读取，不读取阶段历史；与阶段 Agent 的检索服务、Chroma collection、top-k 和相似度门槛一致，区别在提示词、无命中兜底方式和历史隔离。
+4. 历史只从 `storage/assistant_history.json` 读取，不读取阶段历史；与阶段 Agent 的检索服务、内存切片索引、top-k 和相似度门槛一致，区别在提示词、无命中兜底方式和历史隔离。
 5. 每轮完成后写入独立助手历史；阶段对话完全不受影响。
 
 #### JSON 响应
@@ -1008,7 +1009,7 @@ GET /api/dashboard
 | `EMPTY_DOCUMENT` | 422 | 是 | 无可入库文本 |
 | `SCANNED_PDF_UNSUPPORTED` | 422 | 否 | 扫描件 PDF，不支持 OCR |
 | `EMBEDDING_FAILED` | 502 | 是 | 嵌入模型失败 |
-| `VECTOR_STORE_FAILED` | 500 | 是 | Chroma 读写失败 |
+| `VECTOR_STORE_FAILED` | 500 | 是 | 内存索引读写失败 |
 | `LLM_TIMEOUT` | 504 | 是 | LLM 超时 |
 | `LLM_AUTH_FAILED` | 502 | 否 | API Key 无效 |
 | `LLM_RATE_LIMITED` | 429 | 是 | 上游限流 |
@@ -1069,10 +1070,10 @@ GET /api/dashboard
 
 | 项目 | 选择 | 说明 |
 | --- | --- | --- |
-| 嵌入模型 | 本地 `sentence-transformers` + `BAAI/bge-small-zh-v1.5` | 512 维，中文语义效果稳定，CPU 可运行，不占额外 API Key；当前版本已实测 |
-| DeepSeek 嵌入接口 | 不使用 | 避免依赖不稳定的嵌入端点，降低外部配置复杂度 |
-| 向量库 | Chroma 本地持久化 | 目录 `storage/chroma/` |
-| Collection | 单 collection `aps_documents` | 用 `project_id` 元数据过滤 |
+| 嵌入方式 | 外部 OpenAI-compatible Embedding API | 默认 SiliconFlow `BAAI/bge-m3`，不加载本地模型 |
+| 无 Embedding Key | 内存关键词检索兜底 | 仍可上传和检索，但语义能力降级 |
+| 向量索引 | 内存切片索引 | 快照到 `storage/vector_index.json`，不使用 Chroma |
+| 项目隔离 | 内存索引按 `project_id` 过滤 | 单进程一致性 |
 | 切片长度 | 600–900 字符，重叠约 100 字符 | 标题/段落/表格行组优先 |
 | 检索 | top-k=5，余弦相似度；语义分 ≥0.35 召回，<0.50 的结果需要问题关键词命中才保留 | 通过 `RAG_TOP_K`、`RAG_MIN_SCORE`、`RAG_RELEVANCE_SCORE` 调整 |
 | 摘要 | DeepSeek 按阶段生成；失败时抽取式回退 | 不阻断文档入库；无 Key 时明确返回 warning |
@@ -1084,18 +1085,18 @@ GET /api/dashboard
 ```bash
 DEEPSEEK_API_KEY=sk-...
 DEEPSEEK_MODEL=deepseek-chat
-EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
-HF_ENDPOINT=https://hf-mirror.com
-HF_HOME=storage/hf-cache
-CHROMA_DIR=storage/chroma
+EMBEDDING_API_BASE=https://api.siliconflow.cn/v1
+EMBEDDING_API_KEY=sk-...
+EMBEDDING_MODEL=BAAI/bge-m3
+EMBEDDING_TIMEOUT=60
 RAG_TOP_K=5
 RAG_MIN_SCORE=0.35
 RAG_RELEVANCE_SCORE=0.50
 MAX_UPLOAD_MB=20
-EMBEDDING_DEVICE=cpu
 ```
 
-> 当前默认使用 Hugging Face 镜像，避免国内网络直接访问 `huggingface.co` 超时；模型缓存放在 `storage/hf-cache`，首次加载约需下载 90 MB。
+> 不下载任何 Hugging Face / torch 模型。配置外部 Embedding Key 后使用语义检索；
+> 未配置时使用内存关键词检索兜底。
 
 ---
 
@@ -1107,13 +1108,13 @@ EMBEDDING_DEVICE=cpu
 2. `history` 传入时以客户端为准并替换该阶段已存历史；不传时读取服务端历史。
 3. 错误响应统一返回 `{ok, code, message, data, error}`，`error` 保留为兼容别名。
 4. 第三阶段 SSE 预留独立路由 `POST /api/chat/stream`，现有 `/api/chat` 保持非流式 JSON。
-5. 嵌入模型使用本地 `BAAI/bge-small-zh-v1.5`，top-k=5；语义阈值 0.35，弱语义结果需关键词命中，避免“食堂菜单”类问题误召回。
+5. 嵌入模型使用外部 OpenAI-compatible API；未配置 Key 时使用关键词检索兜底。top-k=5，语义阈值 0.35，弱语义结果需关键词命中，避免“食堂菜单”类问题误召回。
 
 ---
 
 ## 8.1 第二阶段实现状态
 
-- 已完成 `POST /api/upload`：DOCX / XLSX / 数字版 PDF 解析、切片、BGE 向量化、Chroma 本地入库、阶段摘要。
+- 已完成 `POST /api/upload`：DOCX / XLSX / 数字版 PDF 解析、切片、外部 Embedding（可选）、内存索引、阶段摘要。
 - 已完成 `GET /api/documents/{project_id}`：文档状态、切片数、摘要和失败原因。
 - 已完成 `POST /api/chat` 的 RAG 路径：检索、引用来源、无信息兜底、历史存储与兼容字段。
 - 已完成前端增量：上传入口、知识库文档列表、`sources` 标签与片段弹窗、文档问答/阶段生成切换。
@@ -1124,7 +1125,7 @@ EMBEDDING_DEVICE=cpu
 
 - 前端右下角悬浮机器人 FAB + 独立抽屉，不改变五阶段布局。
 - `POST /api/assistant/chat` 支持 JSON 与 SSE；`GET /api/assistant/history/{project_id}` 恢复独立历史。
-- 检索复用阶段 Agent 的 `retrieval_service`、同一 Chroma collection、同一 top-k 和相关性门槛。
+- 检索复用阶段 Agent 的 `retrieval_service`、同一内存索引、同一 top-k 和相关性门槛。
 - 无命中时转通用大模型回答；当前无 Key 环境下使用本地兜底，配置 Key 后由 DeepSeek 完成通用回答。
 - 独立历史存放在 `storage/assistant_history.json`，不读写阶段 `messages`。
 
@@ -1176,7 +1177,7 @@ SSE 事件：
 app.py                 # Flask 应用工厂、Blueprint 注册、统一异常处理、请求日志钩子
 routes/                # 参数校验与响应；不写业务逻辑
 services/              # 对话、文档、检索、嵌入、LLM、项目、指标与可观测性
-data/                  # 项目上下文、文档登记、助手历史、Chroma 向量库
+data/                  # 项目上下文、文档登记、助手历史、内存索引
 tests/                 # pytest 单元测试
 ```
 
@@ -1251,7 +1252,7 @@ Content-Type: application/json
 DELETE /api/project/<project_id>
 ```
 
-- 删除 Chroma 向量、文档登记、上传文件、助手历史、项目上下文和历史。
+- 删除内存切片索引、文档登记、上传文件、助手历史、项目上下文和历史。
 - 只有全部步骤成功才返回 200；失败保留项目记录并返回 `failed_step`。
 - 删除日志位于 `storage/deletions/`，启动时恢复未完成删除。
 

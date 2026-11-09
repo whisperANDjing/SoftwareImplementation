@@ -1,96 +1,108 @@
 # -*- coding: utf-8 -*-
-"""本地嵌入模型服务（sentence-transformers）。
+"""外部 Embedding API 服务。
 
-模型只在首次使用时加载；加载失败会返回稳定错误码，不会静默改用随机向量。
+默认使用 OpenAI-compatible 的 SiliconFlow 接口；不加载本地模型。
+未配置 Embedding Key 时返回未配置状态，检索服务降级为内存关键词检索。
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import threading
-from typing import List, Sequence
+import math
+from typing import List, Optional, Sequence
 
-from config import EMBEDDING_MODEL, HF_CACHE_DIR, HF_ENDPOINT
+from config import (
+    EMBEDDING_API_BASE,
+    EMBEDDING_API_KEY,
+    EMBEDDING_MODEL,
+    EMBEDDING_TIMEOUT,
+)
 from errors import ApiError
 
 
 log = logging.getLogger("aps-workbench.embedding")
 
-_lock = threading.RLock()
-_model = None
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover
+    OpenAI = None  # type: ignore[assignment]
 
 
-def _get_model():
-    """延迟加载并缓存 SentenceTransformer 模型。"""
-    global _model
-    with _lock:
-        if _model is not None:
-            return _model
-        try:
-            # sentence-transformers 会读取 HF_* 环境变量；必须在导入前设置。
-            HF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            os.environ.setdefault("HF_ENDPOINT", HF_ENDPOINT)
-            os.environ.setdefault("HF_HOME", str(HF_CACHE_DIR))
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:  # pragma: no cover
-            raise ApiError(
-                "EMBEDDING_FAILED",
-                "嵌入依赖未安装，请运行 pip install -r requirements.txt。",
-                502,
-            ) from exc
+def is_configured() -> bool:
+    return bool(EMBEDDING_API_KEY and EMBEDDING_API_BASE and OpenAI is not None)
 
-        try:
-            log.info("加载嵌入模型：%s", EMBEDDING_MODEL)
-            _model = SentenceTransformer(
-                EMBEDDING_MODEL,
-                device=os.getenv("EMBEDDING_DEVICE", "cpu"),
-            )
-            log.info("嵌入模型加载完成")
-            return _model
-        except Exception as exc:  # noqa: BLE001
-            log.exception("嵌入模型加载失败")
-            raise ApiError(
-                "EMBEDDING_FAILED",
-                "嵌入模型加载失败，请检查模型是否已下载或网络是否可用。"
-                f"（{type(exc).__name__}）",
-                502,
-            ) from exc
+
+def model_name() -> str:
+    return EMBEDDING_MODEL if is_configured() else "lexical-fallback"
+
+
+def mode() -> str:
+    return "external" if is_configured() else "lexical-fallback"
+
+
+def _client():
+    if not is_configured():
+        raise ApiError(
+            "EMBEDDING_NOT_CONFIGURED",
+            "未配置外部 Embedding API，已使用内存关键词检索。",
+            502,
+        )
+    return OpenAI(
+        api_key=EMBEDDING_API_KEY,
+        base_url=EMBEDDING_API_BASE,
+        timeout=EMBEDDING_TIMEOUT,
+    )
+
+
+def _normalise(vector: Sequence[float]) -> List[float]:
+    values = [float(value) for value in vector]
+    norm = math.sqrt(sum(value * value for value in values))
+    if norm <= 0:
+        return values
+    return [value / norm for value in values]
 
 
 def embed_texts(texts: Sequence[str]) -> List[List[float]]:
-    """把一批文本转为归一化向量。
-
-    输入：文本列表
-    输出：与文本顺序一致的向量列表
-    """
+    """调用外部 API 批量向量化，返回归一化向量。"""
     values = [str(text or "").strip() for text in texts]
     if not values:
         return []
-    model = _get_model()
     try:
-        vectors = model.encode(
-            values,
-            batch_size=16,
-            show_progress_bar=False,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
+        response = _client().embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=values,
+            timeout=EMBEDDING_TIMEOUT,
         )
-        return [[float(value) for value in vector] for vector in vectors]
+        items = sorted(
+            response.data,
+            key=lambda item: int(getattr(item, "index", 0)),
+        )
+        vectors = [_normalise(item.embedding) for item in items]
+        if len(vectors) != len(values):
+            raise ValueError("Embedding 返回数量与输入不一致")
+        return vectors
+    except ApiError:
+        raise
     except Exception as exc:  # noqa: BLE001
-        log.exception("文本向量化失败")
+        log.exception("外部 Embedding 调用失败")
         raise ApiError(
             "EMBEDDING_FAILED",
-            f"文本向量化失败：{type(exc).__name__}。",
+            f"Embedding API 调用失败：{type(exc).__name__}。请检查 Key、模型名和网络。",
             502,
         ) from exc
 
 
 def embed_query(text: str) -> List[float]:
-    """把查询文本转为向量。"""
     vectors = embed_texts([text])
     return vectors[0] if vectors else []
 
 
-def model_name() -> str:
-    return EMBEDDING_MODEL
+def try_embed_query(text: str) -> Optional[List[float]]:
+    """有配置则尝试外部向量；无配置或 API 失败时返回 None，由检索降级。"""
+    if not is_configured():
+        return None
+    try:
+        return embed_query(text)
+    except ApiError:
+        log.warning("查询 Embedding 失败，降级为内存关键词检索", exc_info=True)
+        return None

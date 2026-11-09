@@ -26,6 +26,7 @@ def _match(score, snippet, row=2):
 
 def test_retrieval_maps_source_and_drops_weak_unrelated(monkeypatch):
     monkeypatch.setattr(document_store, "count_indexed", lambda project_id: 1)
+    monkeypatch.setattr(embedding_service, "is_configured", lambda: True)
     monkeypatch.setattr(embedding_service, "embed_query", lambda query: [0.1, 0.2])
     monkeypatch.setattr(
         vector_store,
@@ -50,6 +51,7 @@ def test_retrieval_maps_source_and_drops_weak_unrelated(monkeypatch):
 
 def test_retrieval_keeps_keyword_hit_below_semantic_threshold(monkeypatch):
     monkeypatch.setattr(document_store, "count_indexed", lambda project_id: 1)
+    monkeypatch.setattr(embedding_service, "is_configured", lambda: True)
     monkeypatch.setattr(embedding_service, "embed_query", lambda query: [0.1, 0.2])
     monkeypatch.setattr(
         vector_store,

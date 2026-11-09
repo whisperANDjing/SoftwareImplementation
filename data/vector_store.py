@@ -1,151 +1,183 @@
 # -*- coding: utf-8 -*-
-"""Chroma 向量库数据层。
+"""内存文档切片索引。
 
-使用本地持久化模式，不引入独立服务。一个 collection 通过 project_id 元数据隔离项目。
+不使用 Chroma 或本地向量数据库。切片和可选的外部 Embedding 向量常驻内存，
+并快照到 storage/vector_index.json，进程重启后可恢复；检索本身完全在内存中完成。
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import math
+import os
+import re
 import threading
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
-from config import CHROMA_COLLECTION, CHROMA_DIR
+from config import VECTOR_INDEX_FILE
 
 
 log = logging.getLogger("aps-workbench.vector-store")
 
 _lock = threading.RLock()
-_client = None
-_collection = None
+_chunks: Dict[str, Dict[str, Any]] = {}
+_LEXICAL_RE = re.compile(r"[\u4e00-\u9fff]+|[a-zA-Z0-9_]{3,}")
+_STOP_CHARS = set("的了吗呢请问帮我看看这个那个以及和与及里面")
 
 
 class VectorStoreError(RuntimeError):
-    """Chroma 不可用或读写失败。"""
+    """内存索引读写失败。"""
 
 
-def _get_collection():
-    """延迟初始化 Chroma client 与 collection。"""
-    global _client, _collection
-    with _lock:
-        if _collection is not None:
-            return _collection
-        try:
-            import chromadb
-        except ImportError as exc:  # pragma: no cover - 依赖缺失时
-            raise VectorStoreError(
-                "Chroma 未安装，请运行 pip install -r requirements.txt。"
-            ) from exc
+def _load() -> Dict[str, Dict[str, Any]]:
+    if not VECTOR_INDEX_FILE.exists():
+        return {}
+    try:
+        data = json.loads(VECTOR_INDEX_FILE.read_text(encoding="utf-8"))
+        chunks = data.get("chunks", {}) if isinstance(data, dict) else {}
+        if not isinstance(chunks, dict):
+            return {}
+        return {
+            str(chunk_id): record
+            for chunk_id, record in chunks.items()
+            if isinstance(record, dict)
+        }
+    except Exception:  # noqa: BLE001
+        log.exception("内存索引快照读取失败，将从空索引启动")
+        return {}
 
-        try:
-            CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-            from chromadb.config import Settings
 
-            _client = chromadb.PersistentClient(
-                path=str(CHROMA_DIR),
-                settings=Settings(anonymized_telemetry=False),
-            )
-            _collection = _client.get_or_create_collection(
-                name=CHROMA_COLLECTION,
-                metadata={"hnsw:space": "cosine"},
-            )
-            return _collection
-        except Exception as exc:  # noqa: BLE001
-            log.exception("Chroma 初始化失败")
-            raise VectorStoreError(f"向量库初始化失败：{exc}") from exc
+_chunks = _load()
+
+
+def _save() -> None:
+    VECTOR_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = VECTOR_INDEX_FILE.with_suffix(".json.tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        json.dump({"chunks": _chunks}, handle, ensure_ascii=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_path, VECTOR_INDEX_FILE)
 
 
 def add_chunks(
     project_id: str,
     doc_id: str,
     chunks: Sequence[Dict[str, Any]],
-    embeddings: Sequence[Sequence[float]],
+    embeddings: Optional[Sequence[Optional[Sequence[float]]]] = None,
 ) -> int:
-    """写入文档切片。
-
-    输入：项目 ID、文档 ID、切片列表（含 text/metadata）、向量列表
-    输出：写入切片数
-    """
-    if len(chunks) != len(embeddings):
-        raise VectorStoreError("切片数与向量数不一致。")
+    """把文档切片写入内存索引；embeddings 为 None 时使用关键词检索。"""
     if not chunks:
         return 0
+    vectors: List[Optional[List[float]]]
+    if embeddings is None:
+        vectors = [None] * len(chunks)
+    else:
+        vectors = [
+            [float(value) for value in vector] if vector is not None else None
+            for vector in embeddings
+        ]
+        if len(vectors) != len(chunks):
+            raise VectorStoreError("切片数与向量数不一致。")
 
-    collection = _get_collection()
-    ids: List[str] = []
-    documents: List[str] = []
-    metadatas: List[Dict[str, Any]] = []
-    vectors: List[List[float]] = []
+    with _lock:
+        # 同一文档重新入库时替换旧切片，避免重复命中。
+        for chunk_id, record in list(_chunks.items()):
+            if record.get("project_id") == project_id and record.get("doc_id") == doc_id:
+                _chunks.pop(chunk_id, None)
+        for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
+            chunk_id = f"{doc_id}:{index:04d}"
+            metadata = {
+                "project_id": project_id,
+                "doc_id": doc_id,
+                **chunk.get("metadata", {}),
+            }
+            metadata = {
+                key: value for key, value in metadata.items() if value is not None
+            }
+            _chunks[chunk_id] = {
+                "chunk_id": chunk_id,
+                "project_id": project_id,
+                "doc_id": doc_id,
+                "text": str(chunk.get("text", "")),
+                "metadata": metadata,
+                "embedding": vector,
+            }
+        try:
+            _save()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("内存索引快照写入失败")
+            raise VectorStoreError(f"索引快照写入失败：{exc}") from exc
+        return len(chunks)
 
-    for index, (chunk, vector) in enumerate(zip(chunks, embeddings)):
-        metadata = {
-            "project_id": project_id,
-            "doc_id": doc_id,
-            **chunk.get("metadata", {}),
-        }
-        # Chroma 只接受 str/int/float/bool 元数据，过滤 None 与空值。
-        metadata = {
-            key: value
-            for key, value in metadata.items()
-            if value is not None
-        }
-        ids.append(f"{doc_id}:{index:04d}")
-        documents.append(str(chunk.get("text", "")))
-        metadatas.append(metadata)
-        vectors.append([float(value) for value in vector])
 
-    try:
-        # 小批量 upsert，避免单次请求过大。
-        batch_size = 100
-        for start in range(0, len(ids), batch_size):
-            collection.upsert(
-                ids=ids[start:start + batch_size],
-                documents=documents[start:start + batch_size],
-                metadatas=metadatas[start:start + batch_size],
-                embeddings=vectors[start:start + batch_size],
-            )
-        return len(ids)
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Chroma 写入失败")
-        raise VectorStoreError(f"向量库写入失败：{exc}") from exc
+def _terms(query: str) -> List[str]:
+    terms: List[str] = []
+    for part in _LEXICAL_RE.findall(str(query or "").lower()):
+        if re.search(r"[\u4e00-\u9fff]", part):
+            cleaned = "".join(char for char in part if char not in _STOP_CHARS)
+            if len(cleaned) >= 2:
+                for size in (2, 3):
+                    for index in range(0, len(cleaned) - size + 1):
+                        terms.append(cleaned[index:index + size])
+        else:
+            terms.append(part)
+    return list(dict.fromkeys(terms))
+
+
+def _lexical_score(query: str, text: str) -> float:
+    terms = _terms(query)
+    if not terms:
+        return 0.0
+    lowered = str(text or "").lower()
+    hits = sum(1 for term in terms if term in lowered)
+    if not hits:
+        return 0.0
+    return min(0.95, 0.45 + min(hits, 5) * 0.1)
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    if not left or not right:
+        return 0.0
+    length = min(len(left), len(right))
+    dot = sum(float(left[i]) * float(right[i]) for i in range(length))
+    left_norm = math.sqrt(sum(float(value) ** 2 for value in left[:length]))
+    right_norm = math.sqrt(sum(float(value) ** 2 for value in right[:length]))
+    if left_norm <= 0 or right_norm <= 0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (left_norm * right_norm)))
 
 
 def query_chunks(
     project_id: str,
-    query_embedding: Sequence[float],
-    top_k: int,
-    min_score: float,
+    query_embedding: Optional[Sequence[float]] = None,
+    query_text: str = "",
+    top_k: int = 5,
+    min_score: float = 0.0,
 ) -> List[Dict[str, Any]]:
-    """按项目检索最相关片段，返回按相似度降序的片段和元数据。"""
-    collection = _get_collection()
-    try:
-        result = collection.query(
-            query_embeddings=[[float(value) for value in query_embedding]],
-            n_results=max(1, top_k),
-            where={"project_id": project_id},
-            include=["documents", "metadatas", "distances"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Chroma 检索失败")
-        raise VectorStoreError(f"向量库检索失败：{exc}") from exc
-
-    documents = (result.get("documents") or [[]])[0] or []
-    metadatas = (result.get("metadatas") or [[]])[0] or []
-    distances = (result.get("distances") or [[]])[0] or []
-    ids = (result.get("ids") or [[]])[0] or []
-
+    """在内存中按项目检索；有向量用余弦，无向量/无切片向量时用关键词。"""
     matches: List[Dict[str, Any]] = []
-    for chunk_id, text, metadata, distance in zip(ids, documents, metadatas, distances):
-        score = max(0.0, min(1.0, 1.0 - float(distance)))
+    with _lock:
+        records = [
+            dict(record)
+            for record in _chunks.values()
+            if record.get("project_id") == project_id
+        ]
+    for record in records:
+        if query_embedding and record.get("embedding"):
+            score = _cosine(query_embedding, record["embedding"])
+        else:
+            score = _lexical_score(query_text, record.get("text", ""))
+        score = round(score, 4)
         if score < min_score:
             continue
-        meta = dict(metadata or {})
         matches.append(
             {
-                "chunk_id": chunk_id,
-                "text": text,
-                "score": round(score, 4),
-                "metadata": meta,
+                "chunk_id": record["chunk_id"],
+                "text": record.get("text", ""),
+                "score": score,
+                "metadata": record.get("metadata", {}),
             }
         )
     matches.sort(key=lambda item: item["score"], reverse=True)
@@ -153,87 +185,77 @@ def query_chunks(
 
 
 def delete_project(project_id: str) -> int:
-    """删除项目全部向量，返回删除的切片数。"""
-    collection = _get_collection()
-    try:
-        existing = collection.get(where={"project_id": project_id}, include=["metadatas"])
-        ids = existing.get("ids") or []
+    with _lock:
+        ids = [
+            chunk_id
+            for chunk_id, record in _chunks.items()
+            if record.get("project_id") == project_id
+        ]
+        for chunk_id in ids:
+            _chunks.pop(chunk_id, None)
         if ids:
-            collection.delete(where={"project_id": project_id})
+            try:
+                _save()
+            except Exception as exc:  # noqa: BLE001
+                raise VectorStoreError(f"索引快照写入失败：{exc}") from exc
         return len(ids)
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Chroma 项目删除失败")
-        raise VectorStoreError(f"向量库项目删除失败：{exc}") from exc
 
 
-def _chunk_from_result(chunk_id: str, text: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _chunk_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "chunk_id": chunk_id,
-        "text": text,
-        "metadata": dict(metadata or {}),
+        "chunk_id": record["chunk_id"],
+        "text": record.get("text", ""),
+        "metadata": dict(record.get("metadata", {})),
     }
 
 
 def get_source_context(project_id: str, chunk_id: str) -> Optional[Dict[str, Any]]:
     """返回命中切片及同文档前/后各一个切片。"""
-    collection = _get_collection()
-    try:
-        current = collection.get(
-            ids=[chunk_id], include=["documents", "metadatas"]
-        )
-        ids = current.get("ids") or []
-        if not ids:
+    with _lock:
+        current = _chunks.get(chunk_id)
+        if not current or current.get("project_id") != project_id:
             return None
-        documents = current.get("documents") or []
-        metadatas = current.get("metadatas") or []
-        metadata = dict(metadatas[0] or {})
-        if metadata.get("project_id") != project_id:
-            return None
-        doc_id = metadata.get("doc_id")
-        if not doc_id:
-            return None
-        doc = collection.get(
-            where={"doc_id": doc_id}, include=["documents", "metadatas"]
-        )
-        doc_ids = doc.get("ids") or []
-        doc_docs = doc.get("documents") or []
-        doc_metas = doc.get("metadatas") or []
-        chunks = [
-            _chunk_from_result(item_id, text, meta)
-            for item_id, text, meta in zip(doc_ids, doc_docs, doc_metas)
+        doc_id = current.get("doc_id")
+        records = [
+            dict(record)
+            for record in _chunks.values()
+            if record.get("project_id") == project_id
+            and record.get("doc_id") == doc_id
         ]
-        chunks.sort(key=lambda item: int(item["metadata"].get("chunk_index", 0)))
-        index = next(
-            (pos for pos, item in enumerate(chunks) if item["chunk_id"] == chunk_id),
-            None,
-        )
-        if index is None:
-            return None
-        current_chunk = chunks[index]
-        before = chunks[index - 1] if index > 0 else None
-        after = chunks[index + 1] if index + 1 < len(chunks) else None
-        return {
-            "current": current_chunk,
-            "before": before,
-            "after": after,
-        }
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Chroma 来源详情读取失败")
-        raise VectorStoreError(f"来源详情读取失败：{exc}") from exc
+    records.sort(key=lambda item: int(item.get("metadata", {}).get("chunk_index", 0)))
+    index = next(
+        (pos for pos, record in enumerate(records) if record["chunk_id"] == chunk_id),
+        None,
+    )
+    if index is None:
+        return None
+    return {
+        "current": _chunk_payload(records[index]),
+        "before": _chunk_payload(records[index - 1]) if index > 0 else None,
+        "after": (
+            _chunk_payload(records[index + 1])
+            if index + 1 < len(records)
+            else None
+        ),
+    }
 
 
 def delete_document(doc_id: str) -> None:
-    """删除某文档的全部切片；用于失败回滚。"""
-    collection = _get_collection()
-    try:
-        collection.delete(where={"doc_id": doc_id})
-    except Exception as exc:  # noqa: BLE001
-        log.warning("删除 Chroma 文档切片失败 %s：%s", doc_id, exc)
+    with _lock:
+        ids = [
+            chunk_id
+            for chunk_id, record in _chunks.items()
+            if record.get("doc_id") == doc_id
+        ]
+        for chunk_id in ids:
+            _chunks.pop(chunk_id, None)
+        if ids:
+            try:
+                _save()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("索引快照写入失败 %s：%s", doc_id, exc)
 
 
 def collection_count() -> int:
-    """返回 collection 当前切片总数，用于健康检查/诊断。"""
-    try:
-        return int(_get_collection().count())
-    except Exception as exc:  # noqa: BLE001
-        raise VectorStoreError(f"向量库状态读取失败：{exc}") from exc
+    with _lock:
+        return len(_chunks)

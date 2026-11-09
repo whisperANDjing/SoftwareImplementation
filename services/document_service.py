@@ -508,7 +508,7 @@ def upload_document(
         if not chunks:
             raise ApiError("EMPTY_DOCUMENT", "文档中没有可入库的文本。", 422)
 
-        # 把来源元数据补到每个切片上，供 Chroma 过滤与 UI 展示。
+        # 把来源元数据补到每个切片上，供内存索引过滤与 UI 展示。
         for chunk in chunks:
             chunk["metadata"] = {
                 **chunk.get("metadata", {}),
@@ -517,12 +517,20 @@ def upload_document(
                 "stage": stage,
             }
 
-        try:
-            embeddings = embedding_service.embed_texts(
-                [chunk["text"] for chunk in chunks]
-            )
-        except ApiError:
-            raise
+        embeddings = None
+        if embedding_service.is_configured():
+            try:
+                embeddings = embedding_service.embed_texts(
+                    [chunk["text"] for chunk in chunks]
+                )
+            except ApiError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise ApiError(
+                    "EMBEDDING_FAILED",
+                    f"外部 Embedding 调用失败：{type(exc).__name__}。",
+                    502,
+                ) from exc
 
         try:
             vector_store.add_chunks(

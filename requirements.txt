@@ -5,20 +5,6 @@ openpyxl>=3.1,<4
 wizarddocx>=1.0,<2
 pdfplumber-rs>=0.3,<1
 
-# RAG（固定兼容组合，避免 pip 自动解析到不兼容的 numpy / transformers）
-numpy==1.26.4
-scipy==1.13.1
-scikit-learn==1.5.2
-chromadb==0.5.23
-sentence-transformers==3.2.1
-torch==2.5.1
-posthog==3.7.0
-transformers==4.46.3
-tokenizers==0.20.3
-huggingface-hub==0.26.5
-fastapi==0.115.6
-starlette==0.41.3
-uvicorn==0.34.0
 gunicorn>=22,<24
 python-dotenv>=1.0,<2
 pytest>=8,<10

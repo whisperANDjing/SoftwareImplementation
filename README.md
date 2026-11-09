@@ -6,7 +6,7 @@
 ## 功能概览
 
 - 首页项目总览：统计卡片、项目卡片、五阶段状态、最近更新与对话摘要。
-- 项目重命名、删除；删除时清理上下文、对话、Chroma 向量、文档、上传文件和助手历史。
+- 项目重命名、删除；删除时清理上下文、对话、内存向量索引、文档、上传文件和助手历史。
 - 阶段对话历史恢复、清空当前阶段历史、重新生成不追加重复历史。
 - RAG 来源可点击查看原文、前后片段和页码/行号定位。
 - 任意阶段归档后均可导出 Word / Excel；Markdown 标题、列表、表格自适应排版，解析失败自动降级为纯文本。
@@ -16,21 +16,21 @@
 - 历史模板复用：从已归档阶段一/五带入初始上下文。
 - 五阶段导航、阶段上下文、对话历史、手动归档和来源展示。
 - 工作台独立路由 `/workbench/<project_id>`，项目不存在时回到首页提示。
-- 文档上传：DOCX / XLSX / 数字版 PDF，自动解析、切片、向量化并写入 Chroma。
-- 本地 BGE 嵌入模型，不依赖外部 embedding API。
+- 文档上传：DOCX / XLSX / 数字版 PDF，自动解析、切片，并写入内存切片索引。
+- 外部 OpenAI-compatible Embedding API（默认 SiliconFlow），不加载本地模型；未配置 Key 时使用关键词检索兜底。
 - 阶段 Agent 与全局 AI 小助手均支持 SSE 流式输出。
 - 多轮历史按 `project_id + stage` 保存，阶段切换后可恢复。
 - 全局小助手历史单独存储，不污染阶段历史。
 - 无 `DEEPSEEK_API_KEY` 时仍可运行，知识库回答使用抽取式兜底，阶段生成使用本地演示稿。
 - API 请求日志包含耗时、请求 ID、token 消耗；错误格式统一。
-- 46 个 pytest 测试覆盖首页/工作台、项目 CRUD、售前评估、上线跟踪、人工门禁、模板复用、历史恢复、来源详情、Word/Excel 导出和错误契约。
+- 49 个 pytest 测试覆盖首页/工作台、项目 CRUD、售前评估、上线跟踪、人工门禁、模板复用、历史恢复、来源详情、Word/Excel 导出和错误契约。
 
 ## 技术栈
 
 - Flask + 原生 HTML/JS/CSS，无前端构建工具
 - OpenAI Python SDK，`base_url=https://api.deepseek.com`
-- Chroma 本地持久化
-- sentence-transformers + `BAAI/bge-small-zh-v1.5`
+- 内存切片索引 + JSON 快照（不使用 Chroma）
+- 外部 Embedding API（OpenAI-compatible）
 - Python 3.12
 - 生产使用 Gunicorn
 
@@ -46,10 +46,10 @@
 ```text
 app.py                  Flask 入口、Blueprint 注册、请求日志与异常处理
 runtime_config.py       开发/生产运行配置
-config.py               路径、模型、RAG、上传限制
+config.py               路径、外部 Embedding、RAG、上传限制
 routes/                 路由层（只做参数校验与响应）
 services/               服务层（对话、检索、文档、LLM、助手、指标）
-data/                   数据层（项目上下文、文档登记、助手历史、Chroma）
+data/                   数据层（项目上下文、文档登记、助手历史、内存索引）
 templates/ static/      单页前端
 storage/                本地运行时数据（默认）
 tests/                  pytest
@@ -67,16 +67,23 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 可选：编辑 .env，填入 DEEPSEEK_API_KEY
+# 可选：编辑 .env，填入 DEEPSEEK_API_KEY 和 EMBEDDING_API_KEY
 python3 app.py
 ```
 
 打开 **http://127.0.0.1:5001**，进入首页项目总览。点击项目卡片进入 `/workbench/<project_id>`。
 
 启动时会自动加载项目根目录的 `.env`（已存在的环境变量优先级更高）。
-首次上传文档时会加载本地 BGE 模型。默认通过 `https://hf-mirror.com` 下载并缓存到
-`storage/hf-cache`，约 90 MB。网络不可用时，文档上传会返回友好的
-`EMBEDDING_FAILED` 错误。
+文档向量化调用外部 Embedding API，默认是 SiliconFlow 的 `BAAI/bge-m3`：
+
+```text
+EMBEDDING_API_BASE=https://api.siliconflow.cn/v1
+EMBEDDING_API_KEY=你的 Embedding Key
+EMBEDDING_MODEL=BAAI/bge-m3
+```
+
+没有配置 Embedding Key 时，文档仍会入库，但检索降级为内存关键词匹配。
+不会下载或加载任何本地 sentence-transformers / torch 模型。
 
 ### 验证 RAG
 
@@ -116,9 +123,10 @@ python3 app.py
 | `DEEPSEEK_MODEL` | `deepseek-chat` | 对话模型 |
 | `APP_ENV` | `development` | `development` / `production` |
 | `PORT` | `5001` | 服务端口 |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 本地嵌入模型 |
-| `HF_ENDPOINT` | `https://hf-mirror.com` | Hugging Face 镜像 |
-| `HF_HOME` | `storage/hf-cache` | 模型缓存目录 |
+| `EMBEDDING_API_BASE` | `https://api.siliconflow.cn/v1` | 外部 OpenAI-compatible Embedding 接口 |
+| `EMBEDDING_API_KEY` | 空 | Embedding API Key；也支持 `SILICONFLOW_API_KEY` |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | Embedding 模型名 |
+| `EMBEDDING_TIMEOUT` | `60` | Embedding 请求超时秒数 |
 | `APS_DATA_DIR` | 项目目录 | 运行时数据根目录（Docker 使用 `/data`） |
 | `RAG_TOP_K` | `5` | 检索条数 |
 | `RAG_MIN_SCORE` | `0.35` | 语义召回最低分 |
@@ -136,8 +144,8 @@ python3 app.py
 APP_ENV=production gunicorn -c gunicorn.conf.py app:app
 ```
 
-Gunicorn 默认 `1 worker + 8 threads`。这是为了适配 Chroma 本地持久化，避免多个 worker
-同时争用本地索引文件。
+Gunicorn 默认 `1 worker + 8 threads`。内存索引和本地 JSON 快照需要单进程一致性，
+不建议开启多 worker 或多实例。
 
 ## Docker 运行
 
@@ -151,7 +159,7 @@ docker compose up --build
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY
+# 编辑 .env，填入 DEEPSEEK_API_KEY 和 EMBEDDING_API_KEY
 docker compose up --build
 ```
 
@@ -159,7 +167,7 @@ Compose 会：
 
 - 使用 `APP_ENV=production` 和 Gunicorn 启动。
 - 把项目数据挂载到命名卷 `aps_data`（容器内 `/data`）。
-- 预下载 BGE 模型到镜像 `/app/model-cache`。
+- 通过外部 Embedding API 生成向量，不把模型打包进镜像。
 - 暴露 `5001` 端口并配置健康检查。
 
 停止：
@@ -174,11 +182,8 @@ docker compose down
 docker compose down -v
 ```
 
-> Docker 镜像较大，因为包含 PyTorch、CUDA 之外的 CPU 推理依赖和嵌入模型。
-> 首次构建需要网络下载依赖和模型。
-> 如果模型镜像不可访问，可跳过预下载：
-> `docker build --build-arg PRELOAD_MODEL=false -t aps-workbench .`，
-> 之后首次上传时再下载模型。
+> Docker 镜像不再包含 PyTorch、transformers、sentence-transformers 或本地模型，
+> 构建体积和内存需求显著降低。
 
 ## 测试
 
@@ -186,7 +191,7 @@ docker compose down -v
 pytest -q
 ```
 
-当前 46 个用例覆盖：
+当前 49 个用例覆盖：
 
 - 文档解析、切片长度、sheet/行号/chunk index。
 - 检索结果映射、相似度阈值、关键词兜底。
@@ -220,11 +225,18 @@ stream=True stream_error=False
 - `projects.json`：项目、阶段消息、归档内容。
 - `storage/documents.json`：文档登记。
 - `storage/uploads/`：原始上传文件。
-- `storage/chroma/`：Chroma 向量库。
+- `storage/vector_index.json`：内存切片索引快照。
 - `storage/assistant_history.json`：全局 AI 小助手独立历史。
-- `storage/hf-cache/`：BGE 模型缓存。
 
-Docker 中统一放在 `/data` 持久卷（模型缓存在镜像 `/app/model-cache`）。
+Docker 中统一放在 `/data` 持久卷。
+
+## 从旧版本升级
+
+旧版本的 `storage/chroma/` 和 `storage/hf-cache/` 不再被读取，也不会自动迁移。
+升级后请重新上传文档，系统会在 `storage/vector_index.json` 中重建内存切片索引。
+
+如果配置了 `EMBEDDING_API_KEY`，重新上传时会调用外部 Embedding API；
+未配置时自动使用内存关键词索引。
 
 ## API 文档
 
@@ -235,4 +247,4 @@ Docker 中统一放在 `/data` 持久卷（模型缓存在镜像 `/app/model-cac
 - 多用户、登录、权限系统。
 - 独立部署的数据库服务。
 - 扫描版 PDF OCR。
-- 公网部署、HTTPS 终止、反向代理。
+- 内置登录、权限和多租户；公网部署前需要自行增加访问控制。
