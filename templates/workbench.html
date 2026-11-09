@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="APS 实施顾问 AI 工作台：五阶段结构化交付，复用项目上下文。">
+  <title>APS 实施顾问 AI 工作台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23122521'/%3E%3Ctext x='32' y='39' font-size='17' fill='%23d9f5ef' text-anchor='middle' font-family='Arial'%3EAPS%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-page="workbench" data-project-id="{{ project_id }}">
+  <div class="app-frame" id="app-frame">
+    <header class="topbar">
+      <button type="button" class="back-home-btn" id="back-home-btn" aria-label="返回首页">
+        <span aria-hidden="true">←</span>
+        <span class="back-home-text">返回首页</span>
+      </button>
+
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span>APS</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">APS 实施顾问 AI 工作台</div>
+          <div class="brand-subtitle">从调研到上线的结构化交付</div>
+        </div>
+      </div>
+
+      <div class="topbar-project" id="topbar-project"></div>
+
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="new-project-btn">
+          <span class="plus-sign" aria-hidden="true">+</span>
+          新建项目
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" id="upload-doc-btn" title="上传项目文档并建立知识库索引" hidden>
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <span>上传文档</span>
+        </button>
+        <button type="button" class="btn btn-outline btn-sm context-toggle" id="context-toggle" title="展开/收起项目上下文" aria-expanded="true">
+          <span class="panel-icon" aria-hidden="true"></span>
+          <span>上下文</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="leave-confirm" id="leave-confirm" role="dialog" aria-modal="false" aria-labelledby="leave-confirm-title" hidden>
+      <p id="leave-confirm-title">当前阶段有未归档内容，确定离开？</p>
+      <div class="leave-confirm-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="leave-cancel-btn">取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="leave-confirm-btn">确认离开</button>
+      </div>
+    </div>
+
+    <main class="app-shell" id="app-shell">
+      <aside class="stage-rail" aria-label="五阶段导航">
+        <div class="rail-heading">
+          <span class="kicker">DELIVERY PATH</span>
+          <h2>实施阶段</h2>
+        </div>
+        <div class="project-card project-card--empty" id="project-card">
+          <p>尚未选择项目</p>
+          <button type="button" class="btn btn-primary btn-block" id="rail-new-project-btn">创建第一个项目</button>
+        </div>
+        <nav class="stage-list" id="stage-list" aria-label="阶段列表"></nav>
+        <div class="rail-note">
+          <span class="rail-note-icon" aria-hidden="true">i</span>
+          <p>阶段切换会保留各阶段对话历史，切回时可继续追问；已归档内容不会被删除。</p>
+        </div>
+        <button type="button" class="rail-module" id="post-launch-nav" hidden>
+          <span class="rail-module-icon" aria-hidden="true">↗</span>
+          <span>
+            <strong>上线跟踪</strong>
+            <small>阶段五归档后解锁</small>
+          </span>
+        </button>
+      </aside>
+
+      <section class="workspace">
+        <div class="empty-state" id="empty-state" hidden>
+          <div class="empty-orbit" aria-hidden="true">
+            <span class="orbit-dot orbit-dot--1"></span>
+            <span class="orbit-dot orbit-dot--2"></span>
+            <span class="orbit-dot orbit-dot--3"></span>
+            <div class="empty-core">APS</div>
+          </div>
+          <span class="kicker">APS IMPLEMENTATION COPILOT</span>
+          <h1>把一次排产调研<br>变成可复用的项目上下文</h1>
+          <p class="empty-lead">按五个阶段推进 APS 实施：调研诊断、数据梳理、方案设计、配置验证、上线验收。每个阶段自动引用已归档结论，减少重复提问。</p>
+          <div class="empty-points">
+            <span>有限产能约束</span>
+            <span>异常场景闭环</span>
+            <span>上下文复用</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-lg" id="empty-create-btn">新建项目，开始阶段一</button>
+          <p class="empty-hint">未配置 API Key 时会自动使用本地演示模式，流程仍可完整验证。</p>
+        </div>
+
+        <div class="stage-workspace" id="stage-workspace" hidden>
+          <section class="stage-heading">
+            <div class="stage-heading-main">
+              <div class="stage-heading-line">
+                <span class="kicker" id="stage-kicker">STAGE 01 / 05</span>
+                <span class="status-pill" id="stage-status-pill">未开始</span>
+              </div>
+              <h1 id="stage-title">现状调研与需求诊断</h1>
+              <p id="stage-description"></p>
+            </div>
+            <div class="deliverable-chip">
+              <span class="deliverable-label">本阶段交付物</span>
+              <strong id="stage-deliverable"></strong>
+            </div>
+          </section>
+
+          <section class="template-context-card" id="template-context-card" hidden>
+            <div class="template-context-head">
+              <div>
+                <span class="kicker">HISTORICAL TEMPLATE</span>
+                <strong>历史模板带入（未归档）</strong>
+              </div>
+              <span class="template-context-source"></span>
+            </div>
+            <div class="template-context-body markdown-body" id="template-context-body"></div>
+          </section>
+
+          <section class="input-zone" id="input-zone" aria-label="当前阶段输入区"></section>
+
+          <section class="output-card" aria-labelledby="output-title">
+            <div class="output-head">
+              <div>
+                <span class="kicker">AGENT DELIVERABLE</span>
+                <h2 id="output-title">Agent 输出</h2>
+              </div>
+              <div class="output-tools">
+                <span class="source-badge" id="output-source-badge" hidden></span>
+                <button type="button" class="btn btn-mini" id="copy-output-btn">复制</button>
+              </div>
+            </div>
+
+            <div class="agent-output markdown-body" id="agent-output">
+              <div class="output-placeholder">
+                <div class="placeholder-mark" aria-hidden="true">AI</div>
+                <p>提交阶段信息后，Agent 会在这里给出结构化交付稿。</p>
+                <span>所有输出均为 AI 初稿，需要顾问校验后再发送客户。</span>
+              </div>
+            </div>
+
+            <div class="source-strip" id="source-strip" hidden>
+              <span class="source-strip-label">引用来源</span>
+              <div class="source-list" id="source-list"></div>
+            </div>
+
+            <div class="correction-panel">
+              <div class="correction-head">
+                <label for="correction-input">纠偏意见</label>
+                <span>指出遗漏、错误或需要调整的口径，Agent 会输出完整修订版。</span>
+              </div>
+              <textarea id="correction-input" rows="3" placeholder="例如：补充模具寿命约束；插单处理要区分客户等级；把准交率口径改成按承诺日期统计……"></textarea>
+              <div class="output-actions">
+                <p class="archive-hint"><span aria-hidden="true">↳</span> 归档后，本阶段内容会进入后续阶段的上下文。</p>
+                <div class="action-buttons">
+                  <button type="button" class="btn btn-outline" id="regenerate-btn">
+                    <span class="refresh-icon" aria-hidden="true">↻</span>
+                    重新生成
+                  </button>
+                  <button type="button" class="btn btn-archive" id="archive-btn">
+                    <span aria-hidden="true">✓</span>
+                    归档本阶段
+                  </button>
+                  <button type="button" class="btn btn-outline export-btn" id="export-word-btn">
+                    <span aria-hidden="true">W</span>
+                    导出 Word
+                  </button>
+                  <button type="button" class="btn btn-outline export-btn" id="export-excel-btn">
+                    <span aria-hidden="true">X</span>
+                    导出 Excel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <details class="history-card" id="history-card" open>
+            <summary>
+              <span>本阶段对话记录</span>
+              <span class="history-count" id="history-count">0 条</span>
+              <button type="button" class="history-clear-btn" id="history-clear-btn">清空</button>
+            </summary>
+            <div class="history-clear-confirm" id="history-clear-confirm" hidden>
+              <p>清空本阶段对话记录？归档内容不会受影响。</p>
+              <div class="history-clear-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="history-clear-cancel-btn">取消</button>
+                <button type="button" class="btn btn-primary btn-sm" id="history-clear-confirm-btn">清空记录</button>
+              </div>
+            </div>
+            <div class="history-list" id="history-list"></div>
+          </details>
+        </div>
+
+        <section class="post-launch-view" id="post-launch-view" hidden>
+          <div class="post-launch-head">
+            <div>
+              <span class="kicker">POST-LAUNCH TRACKING</span>
+              <h1>上线后跟踪</h1>
+              <p>记录客户上线后的真实反馈，持续把问题转化为下一轮迭代输入。</p>
+            </div>
+            <div class="post-launch-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="issue-add-btn">+ 新增问题</button>
+              <button type="button" class="btn btn-outline btn-sm" id="issues-export-btn">导出 Excel</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="post-launch-back-btn">返回阶段</button>
+            </div>
+          </div>
+
+          <div class="post-launch-stats" id="post-launch-stats"></div>
+
+          <div class="issue-panel">
+            <div class="issue-panel-head">
+              <h2>问题记录</h2>
+              <span id="issue-count">0 条</span>
+            </div>
+            <div id="issue-list" class="issue-list">
+              <p class="issue-empty">暂无问题记录。</p>
+            </div>
+          </div>
+
+          <div class="issue-agent-panel">
+            <div class="issue-agent-head">
+              <div>
+                <span class="kicker">AGENT ASSIST</span>
+                <h2>Agent 辅助分析</h2>
+              </div>
+              <span class="issue-agent-hint">会读取当前问题列表</span>
+            </div>
+            <textarea id="issue-agent-input" rows="3" placeholder="例如：基于当前问题记录，生成本次迭代的需求池摘要"></textarea>
+            <div class="issue-agent-actions">
+              <button type="button" class="issue-prompt-chip" data-prompt="基于当前问题记录，生成本次迭代的需求池摘要">生成需求池摘要</button>
+              <button type="button" class="issue-prompt-chip" data-prompt="给出针对高频问题的排查建议">生成排查建议</button>
+              <button type="button" class="btn btn-primary btn-sm" id="issue-agent-submit">生成分析</button>
+            </div>
+            <div class="issue-agent-reply markdown-body" id="issue-agent-reply" hidden></div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="context-panel" id="context-panel" aria-label="项目上下文侧边栏">
+        <div class="context-head">
+          <div>
+            <span class="kicker">PROJECT MEMORY</span>
+            <h2>项目上下文</h2>
+          </div>
+          <button type="button" class="icon-btn" id="context-close-btn" title="收起上下文" aria-label="收起上下文">×</button>
+        </div>
+
+        <section class="kb-panel" aria-labelledby="kb-title">
+          <div class="kb-head">
+            <div>
+              <span class="kicker">KNOWLEDGE BASE</span>
+              <h3 id="kb-title">项目知识库</h3>
+            </div>
+            <button type="button" class="btn btn-mini" id="kb-upload-btn">上传文档</button>
+          </div>
+          <div class="kb-upload-status" id="kb-upload-status" hidden></div>
+          <div class="kb-doc-list" id="doc-list"></div>
+          <p class="kb-hint">支持 DOCX / XLSX / 数字版 PDF，单文件不超过 20 MiB。上传后自动切片并写入本地 Chroma。</p>
+        </section>
+
+        <div class="context-summary" id="context-summary"></div>
+        <div class="context-list" id="context-list"></div>
+        <p class="context-footnote">侧边栏支持手动编辑并保存；保存等同于更新该阶段的归档版本。</p>
+      </aside>
+    </main>
+  </div>
+
+  <button type="button" class="assistant-fab" id="assistant-fab" aria-label="打开全局 AI 小助手" title="AI 小助手">
+    <span class="assistant-fab-glow" aria-hidden="true"></span>
+    <svg class="assistant-robot" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M16 7V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="16" cy="3" r="1.5" fill="currentColor"/>
+      <rect x="5" y="8" width="22" height="16" rx="5.5" stroke="currentColor" stroke-width="2"/>
+      <circle cx="12" cy="15" r="1.4" fill="currentColor"/>
+      <circle cx="20" cy="15" r="1.4" fill="currentColor"/>
+      <path d="M12 19.5h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M9 24v3M23 24v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <span class="assistant-fab-dot" aria-hidden="true"></span>
+  </button>
+
+  <section class="assistant-drawer" id="assistant-drawer" hidden aria-label="全局 AI 小助手">
+    <header class="assistant-header">
+      <div class="assistant-avatar" aria-hidden="true">
+        <svg class="assistant-robot" viewBox="0 0 32 32" fill="none">
+          <path d="M16 7V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="16" cy="3" r="1.5" fill="currentColor"/>
+          <rect x="5" y="8" width="22" height="16" rx="5.5" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="15" r="1.4" fill="currentColor"/>
+          <circle cx="20" cy="15" r="1.4" fill="currentColor"/>
+          <path d="M12 19.5h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M9 24v3M23 24v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="assistant-heading">
+        <span class="kicker">GLOBAL COPILOT</span>
+        <h2>APS 智能助手</h2>
+        <p id="assistant-project-label">当前项目</p>
+      </div>
+      <button type="button" class="icon-btn assistant-close" id="assistant-close-btn" aria-label="关闭 AI 小助手" title="关闭">×</button>
+    </header>
+
+    <div class="assistant-messages" id="assistant-messages" aria-live="polite"></div>
+
+    <form class="assistant-form" id="assistant-form">
+      <textarea id="assistant-input" rows="2" maxlength="8000" placeholder="随时提问：项目文档、排产规则、实施推进……"></textarea>
+      <div class="assistant-form-foot">
+        <span>项目知识库优先 · 未命中转通用回答</span>
+        <button type="submit" class="btn btn-primary btn-sm" id="assistant-send-btn">发送</button>
+      </div>
+    </form>
+  </section>
+
+  <div class="modal-backdrop" id="project-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">NEW ENGAGEMENT</span>
+          <h2 id="project-modal-title">创建 APS 实施项目</h2>
+        </div>
+        <button type="button" class="icon-btn" id="modal-close-btn" aria-label="关闭">×</button>
+      </div>
+      <form id="project-form">
+        <div class="form-grid">
+          <label class="field field--full">
+            <span>客户名称 <em>*</em></span>
+            <input type="text" id="modal-client-name" name="client_name" maxlength="120" placeholder="例如：华东精密制造有限公司" autocomplete="off" required>
+          </label>
+          <label class="field">
+            <span>行业</span>
+            <input type="text" id="modal-industry" name="industry" list="industry-options" placeholder="例如：汽车零部件" autocomplete="off">
+            <datalist id="industry-options">
+              <option value="汽车零部件"></option>
+              <option value="装备制造"></option>
+              <option value="电子装配"></option>
+              <option value="医疗器械"></option>
+              <option value="家居建材"></option>
+              <option value="食品饮料"></option>
+            </datalist>
+          </label>
+          <label class="field">
+            <span>生产模式</span>
+            <select id="modal-production-mode" name="production_mode">
+              <option value="">请选择</option>
+              <option value="备货型 MTS">备货型 MTS</option>
+              <option value="订单型 MTO">订单型 MTO</option>
+              <option value="按订单装配 ATO">按订单装配 ATO</option>
+              <option value="按订单设计 ETO">按订单设计 ETO</option>
+              <option value="混合模式">混合模式</option>
+            </select>
+          </label>
+          <label class="field field--full">
+            <span>核心痛点</span>
+            <textarea id="modal-pain-points" name="pain_points" rows="3" placeholder="例如：插单频繁导致计划反复调整；缺料发现太晚；关键设备故障后无法快速重排……"></textarea>
+          </label>
+        </div>
+        <p class="form-error" id="project-form-error" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="modal-cancel-btn">取消</button>
+          <button type="submit" class="btn btn-primary" id="modal-submit-btn">创建项目</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="archive-gate-modal" hidden>
+    <div class="modal modal--gate" role="dialog" aria-modal="true" aria-labelledby="archive-gate-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">ARCHIVE GATE</span>
+          <h2 id="archive-gate-title">归档前确认</h2>
+        </div>
+        <button type="button" class="icon-btn" id="archive-gate-close" aria-label="关闭">×</button>
+      </div>
+      <div class="archive-gate-body">
+        <div class="archive-gate-section" id="archive-gate-stage1" hidden>
+          <label class="archive-gate-check">
+            <input type="checkbox" id="archive-gate-checkbox">
+            <span>我确认已与客户对齐排产约束的优先级</span>
+          </label>
+        </div>
+        <label class="field" id="archive-gate-stage3" hidden>
+          <span>关键业务规则确认人及确认日期 <em>*</em></span>
+          <input id="archive-gate-input" maxlength="200" placeholder="例如：张伟 / 2026-11-09">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="archive-gate-cancel">取消</button>
+        <button type="button" class="btn btn-primary" id="archive-gate-confirm" disabled>确认归档</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="issue-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="issue-modal-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">CUSTOMER FEEDBACK</span>
+          <h2 id="issue-modal-title">新增上线问题</h2>
+        </div>
+        <button type="button" class="icon-btn" id="issue-modal-close" aria-label="关闭">×</button>
+      </div>
+      <form id="issue-form">
+        <label class="field">
+          <span>问题描述 <em>*</em></span>
+          <textarea id="issue-description" rows="4" maxlength="2000" required placeholder="例如：客户反馈插单后计划重排时间过长"></textarea>
+        </label>
+        <label class="field">
+          <span>严重程度</span>
+          <select id="issue-severity">
+            <option value="high">高</option>
+            <option value="medium" selected>中</option>
+            <option value="low">低</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>状态</span>
+          <select id="issue-status">
+            <option value="pending" selected>待处理</option>
+            <option value="in_progress">处理中</option>
+            <option value="resolved">已解决</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="issue-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="issue-submit">保存问题</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="export-confirm-modal" hidden>
+    <div class="modal modal--export-confirm" role="dialog" aria-modal="true" aria-labelledby="export-confirm-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">EXPORT DELIVERABLE</span>
+          <h2 id="export-confirm-title">导出交付物</h2>
+        </div>
+        <button type="button" class="icon-btn" id="export-confirm-close" aria-label="关闭">×</button>
+      </div>
+      <p class="export-confirm-note">文件为 AI 初稿，请校验后发送客户。</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="export-confirm-cancel">取消</button>
+        <button type="button" class="btn btn-primary" id="export-confirm-btn">继续导出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="source-modal" hidden>
+    <div class="modal source-modal" role="dialog" aria-modal="true" aria-labelledby="source-modal-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">RETRIEVED SOURCE</span>
+          <h2 id="source-modal-title">来源片段</h2>
+        </div>
+        <button type="button" class="icon-btn" id="source-modal-close-btn" aria-label="关闭">×</button>
+      </div>
+      <div id="source-modal-body">
+        <p class="source-modal-empty">尚未选择来源。</p>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" accept=".docx,.xlsx,.pdf" hidden>
+
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

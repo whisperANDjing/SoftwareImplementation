@@ -1,0 +1,162 @@
+body[data-page="presales"] {
+  background:
+    radial-gradient(circle at 10% -10%, rgba(15, 118, 110, 0.1), transparent 36%),
+    var(--bg);
+}
+
+.presales-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.presales-actions {
+  margin-left: auto;
+}
+
+.presales-main {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 36px 28px 38px;
+}
+
+.presales-hero {
+  margin-bottom: 24px;
+}
+
+.presales-hero h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(30px, 4vw, 42px);
+  letter-spacing: -0.045em;
+}
+
+.presales-hero p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.presales-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.presales-bubble {
+  padding: 19px 21px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.presales-bubble--user {
+  align-self: flex-end;
+  max-width: 78%;
+  background: var(--accent-soft);
+  border-color: #d3e8e3;
+}
+
+.presales-bubble--agent {
+  max-width: 100%;
+}
+
+.presales-bubble-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.presales-avatar {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.presales-avatar--agent {
+  background: var(--navy);
+}
+
+.presales-intake {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.presales-intake dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.presales-intake dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.presales-assessment {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.presales-assessment h1,
+.presales-assessment h2,
+.presales-assessment h3 {
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.presales-assessment h1 {
+  font-size: 23px;
+}
+
+.presales-assessment h2 {
+  margin-top: 22px;
+  font-size: 17px;
+}
+
+.presales-assessment h3 {
+  margin-top: 17px;
+  font-size: 14px;
+}
+
+.presales-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+  color: var(--muted-light);
+  font-size: 9px;
+}
+
+@media (max-width: 700px) {
+  .presales-main {
+    padding: 24px 14px 30px;
+  }
+
+  .presales-bubble {
+    padding: 15px;
+  }
+
+  .presales-bubble--user {
+    max-width: 92%;
+  }
+
+  .presales-footer {
+    flex-direction: column;
+    gap: 3px;
+  }
+}

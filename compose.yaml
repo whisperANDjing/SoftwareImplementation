@@ -1,0 +1,28 @@
+services:
+  aps-workbench:
+    build:
+      context: .
+      args:
+        PRELOAD_MODEL: "true"
+    ports:
+      - "${PORT:-5001}:5001"
+    environment:
+      APP_ENV: production
+      PORT: "5001"
+      APS_DATA_DIR: /data
+      HF_HOME: /app/model-cache
+      HF_ENDPOINT: https://hf-mirror.com
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+    volumes:
+      - aps_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  aps_data:

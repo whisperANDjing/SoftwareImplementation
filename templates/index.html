@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="APS 实施项目总览：查看项目进度、阶段归档和最近对话摘要。">
+  <title>APS 实施项目总览</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23122521'/%3E%3Ctext x='32' y='39' font-size='17' fill='%23d9f5ef' text-anchor='middle' font-family='Arial'%3EAPS%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body data-page="dashboard">
+  <header class="topbar dashboard-topbar">
+    <a class="brand" href="{{ url_for('page.index') }}" aria-label="APS 项目总览首页">
+      <div class="brand-mark" aria-hidden="true">
+        <span>APS</span>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">APS 实施顾问 AI 工作台</div>
+        <div class="brand-subtitle">项目总览与实施进度</div>
+      </div>
+    </a>
+
+    <div class="topbar-actions dashboard-actions">
+      <button type="button" class="btn btn-outline btn-sm" id="presales-quick-btn">
+        售前快速评估
+      </button>
+      <button type="button" class="btn btn-primary btn-sm" id="dashboard-new-project-btn">
+        <span class="plus-sign" aria-hidden="true">+</span>
+        新建项目
+      </button>
+    </div>
+  </header>
+
+  <main class="dashboard-main">
+    <section class="dash-hero">
+      <div>
+        <span class="kicker">PROJECT PORTFOLIO</span>
+        <h1>项目总览</h1>
+        <p>集中查看 APS 实施项目、五阶段进度与最近对话摘要。</p>
+      </div>
+      <div class="dash-hero-note">
+        <span class="dash-pulse" aria-hidden="true"></span>
+        <span>数据实时读取项目上下文</span>
+      </div>
+    </section>
+
+    <section class="stats-grid" id="stats-grid" aria-label="项目统计">
+      <article class="stat-card stat-card--total is-loading" data-stat="total_projects">
+        <div class="stat-card-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2h5.5A2.5 2.5 0 0 1 20 9.5v7A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z" stroke="currentColor" stroke-width="1.7"/></svg>
+          </span>
+          <span class="stat-label">项目总数</span>
+        </div>
+        <div class="stat-value"><span>—</span></div>
+        <p class="stat-hint">全部实施项目</p>
+      </article>
+
+      <article class="stat-card stat-card--active is-loading" data-stat="active_projects">
+        <div class="stat-card-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="1.7"/><path d="M10 8.8 15.5 12 10 15.2V8.8Z" fill="currentColor"/></svg>
+          </span>
+          <span class="stat-label">进行中项目</span>
+        </div>
+        <div class="stat-value"><span>—</span></div>
+        <p class="stat-hint">尚未全部归档</p>
+      </article>
+
+      <article class="stat-card stat-card--archived is-loading" data-stat="archived_stages">
+        <div class="stat-card-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 8h14v11H5V8Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 5h16v3H4V5Zm5 6h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </span>
+          <span class="stat-label">已归档阶段</span>
+        </div>
+        <div class="stat-value"><span>—</span></div>
+        <p class="stat-hint">所有项目累计</p>
+      </article>
+
+      <article class="stat-card stat-card--recent is-loading" data-stat="active_last_7d">
+        <div class="stat-card-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 17.5 9 12l3.2 3.2L20 6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 6.5h5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="stat-label">最近 7 天活跃</span>
+        </div>
+        <div class="stat-value"><span>—</span></div>
+        <p class="stat-hint">有近期对话或归档</p>
+      </article>
+    </section>
+
+    <section class="dash-projects" aria-labelledby="projects-title">
+      <div class="dash-section-head">
+        <div>
+          <span class="kicker">ACTIVE PORTFOLIO</span>
+          <h2 id="projects-title">项目列表</h2>
+        </div>
+        <span class="project-count" id="project-count">加载中…</span>
+      </div>
+
+      <div class="project-grid project-grid--skeleton" id="dashboard-loading" aria-hidden="true">
+        <article class="project-card-skeleton">
+          <span class="skeleton-line skeleton-line--lg"></span>
+          <span class="skeleton-line skeleton-line--sm"></span>
+          <span class="skeleton-line skeleton-line--md"></span>
+          <span class="skeleton-line skeleton-line--full"></span>
+        </article>
+        <article class="project-card-skeleton">
+          <span class="skeleton-line skeleton-line--lg"></span>
+          <span class="skeleton-line skeleton-line--sm"></span>
+          <span class="skeleton-line skeleton-line--md"></span>
+          <span class="skeleton-line skeleton-line--full"></span>
+        </article>
+        <article class="project-card-skeleton">
+          <span class="skeleton-line skeleton-line--lg"></span>
+          <span class="skeleton-line skeleton-line--sm"></span>
+          <span class="skeleton-line skeleton-line--md"></span>
+          <span class="skeleton-line skeleton-line--full"></span>
+        </article>
+      </div>
+
+      <div class="dashboard-error" id="dashboard-error" hidden>
+        <span class="dashboard-error-icon" aria-hidden="true">!</span>
+        <div>
+          <h3>仪表盘加载失败</h3>
+          <p id="dashboard-error-message">请检查服务是否正常运行。</p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" id="dashboard-retry-btn">重试</button>
+      </div>
+
+      <div class="project-grid" id="project-grid" hidden></div>
+
+      <div class="dash-empty" id="dashboard-empty" hidden>
+        <div class="empty-orbit empty-orbit--small" aria-hidden="true">
+          <span class="orbit-dot orbit-dot--1"></span>
+          <span class="orbit-dot orbit-dot--2"></span>
+          <span class="orbit-dot orbit-dot--3"></span>
+          <div class="empty-core">APS</div>
+        </div>
+        <span class="kicker">START HERE</span>
+        <h2>还没有 APS 实施项目</h2>
+        <p>从一次结构化调研开始，创建第一个项目并进入阶段一。</p>
+        <button type="button" class="btn btn-primary btn-lg" id="empty-new-project-btn">新建项目</button>
+      </div>
+    </section>
+
+    <footer class="dashboard-footer">
+      <span>APS 实施顾问 AI 工作台</span>
+      <span>本地单用户 · 数据存储于项目目录</span>
+    </footer>
+  </main>
+
+  <div class="modal-backdrop" id="dashboard-project-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-project-modal-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">NEW PROJECT</span>
+          <h2 id="dashboard-project-modal-title">创建 APS 实施项目</h2>
+        </div>
+        <button type="button" class="icon-btn" id="dashboard-project-modal-close" aria-label="关闭">×</button>
+      </div>
+
+      <form id="dashboard-project-form">
+        <label class="field">
+          <span>客户名称 <em>*</em></span>
+          <input id="dashboard-client-name" name="client_name" maxlength="80" required placeholder="例如：华东精密制造有限公司">
+        </label>
+        <label class="field">
+          <span>行业</span>
+          <input id="dashboard-industry" name="industry" maxlength="80" placeholder="例如：汽车零部件">
+        </label>
+        <label class="field">
+          <span>生产模式</span>
+          <input id="dashboard-production-mode" name="production_mode" maxlength="80" placeholder="例如：订单型 MTO / 备货型 MTS">
+        </label>
+        <label class="field">
+          <span>核心痛点</span>
+          <textarea id="dashboard-pain-points" name="pain_points" rows="3" maxlength="500" placeholder="例如：插单频繁、缺料发现晚、关键设备故障后计划难恢复"></textarea>
+        </label>
+        <label class="field">
+          <span>复用历史模板（可选）</span>
+          <select id="dashboard-template-id">
+            <option value="">不适用</option>
+          </select>
+          <small class="field-hint">仅列出已归档的阶段一约束清单或阶段五培训问答。</small>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="dashboard-project-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="dashboard-project-submit">创建并进入工作台</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="presales-modal" hidden>
+    <div class="modal presales-modal" role="dialog" aria-modal="true" aria-labelledby="presales-modal-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">PRESALES QUICK ASSESSMENT</span>
+          <h2 id="presales-modal-title">售前快速评估</h2>
+        </div>
+        <button type="button" class="icon-btn" id="presales-modal-close" aria-label="关闭">×</button>
+      </div>
+      <form id="presales-form">
+        <div class="presales-form-grid">
+          <label class="field">
+            <span>客户行业 <em>*</em></span>
+            <input id="presales-industry" maxlength="80" required placeholder="例如：汽车零部件">
+          </label>
+          <label class="field">
+            <span>生产模式</span>
+            <input id="presales-production-mode" maxlength="80" placeholder="例如：订单型 MTO">
+          </label>
+          <label class="field field--full">
+            <span>核心痛点 <em>*</em></span>
+            <textarea id="presales-pain-points" rows="3" maxlength="2000" placeholder="例如：插单频繁、缺料发现晚、计划重排靠人工"></textarea>
+          </label>
+          <label class="field field--full">
+            <span>预计规模</span>
+            <input id="presales-scale" maxlength="200" placeholder="例如：3 个工厂 / 1200 人 / 年产值 8 亿">
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="presales-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="presales-submit">生成 APS 价值点初稿</button>
+        </div>
+      </form>
+      <div class="presales-history">
+        <div class="presales-history-head">
+          <span>最近售前评估</span>
+        </div>
+        <div id="presales-history-list" class="presales-history-list">
+          <p class="presales-history-empty">加载中…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="dashboard-rename-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-rename-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">EDIT PROJECT</span>
+          <h2 id="dashboard-rename-title">重命名项目</h2>
+        </div>
+        <button type="button" class="icon-btn" id="dashboard-rename-close" aria-label="关闭">×</button>
+      </div>
+      <form id="dashboard-rename-form">
+        <label class="field">
+          <span>客户名称 <em>*</em></span>
+          <input id="dashboard-rename-client-name" maxlength="80" required>
+        </label>
+        <label class="field">
+          <span>行业</span>
+          <input id="dashboard-rename-industry" maxlength="80">
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="dashboard-rename-cancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="dashboard-rename-submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="dashboard-delete-modal" hidden>
+    <div class="modal modal--danger" role="dialog" aria-modal="true" aria-labelledby="dashboard-delete-title">
+      <div class="modal-head">
+        <div>
+          <span class="kicker">DELETE PROJECT</span>
+          <h2 id="dashboard-delete-title">删除项目</h2>
+        </div>
+        <button type="button" class="icon-btn" id="dashboard-delete-close" aria-label="关闭">×</button>
+      </div>
+      <p class="delete-warning">删除后项目上下文、对话历史、已入库文档将一并移除，且不可恢复，确定删除？</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="dashboard-delete-cancel">取消</button>
+        <button type="button" class="btn btn-danger" id="dashboard-delete-submit">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+</body>
+</html>
