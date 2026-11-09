@@ -1,7 +1,7 @@
 # APS 实施顾问 AI 工作台
 
 面向 APS 实施顾问的五阶段 AI 工作台：需求调研、数据梳理、方案设计、配置验证、上线验收。
-在阶段 Agent 之外，提供独立的全局 AI 小助手和项目知识库 RAG 问答。
+在阶段 Agent 之外，提供独立的全局 Copilot 临时查阅区和项目知识库 RAG 问答。
 
 ## 功能概览
 
@@ -18,12 +18,13 @@
 - 工作台独立路由 `/workbench/<project_id>`，项目不存在时回到首页提示。
 - 文档上传：DOCX / XLSX / 数字版 PDF，自动解析、切片，并写入内存切片索引。
 - 外部 OpenAI-compatible Embedding API（默认 SiliconFlow），不加载本地模型；未配置 Key 时使用关键词检索兜底。
-- 阶段 Agent 与全局 AI 小助手均支持 SSE 流式输出。
+- 全局 Copilot 是临时查阅区，只使用已归档摘要和文档，不注入当前阶段未归档草稿。
+- 阶段 Agent 与全局 Copilot 均支持 SSE 流式输出。
 - 多轮历史按 `project_id + stage` 保存，阶段切换后可恢复。
-- 全局小助手历史单独存储，不污染阶段历史。
+- 全局 Copilot 历史单独存储，只保留最近 5 轮，不污染阶段历史。
 - 无 `DEEPSEEK_API_KEY` 时仍可运行，知识库回答使用抽取式兜底，阶段生成使用本地演示稿。
 - API 请求日志包含耗时、请求 ID、token 消耗；错误格式统一。
-- 49 个 pytest 测试覆盖首页/工作台、项目 CRUD、售前评估、上线跟踪、人工门禁、模板复用、历史恢复、来源详情、Word/Excel 导出和错误契约。
+- 52 个 pytest 测试覆盖首页/工作台、项目 CRUD、售前评估、上线跟踪、人工门禁、模板复用、历史恢复、来源详情、Word/Excel 导出和错误契约。
 
 ## 技术栈
 
@@ -104,14 +105,14 @@ EMBEDDING_MODEL=BAAI/bge-m3
 切到阶段二再切回，阶段一的对话和 Agent 输出应恢复。真实语义指代需要有效的
 `DEEPSEEK_API_KEY`；无 Key 时本地演示稿无法真正理解语义指代。
 
-### 验证全局 AI 小助手
+### 验证全局 Copilot
 
 点击右下角机器人 FAB：
 
 - 提问项目文档问题，会优先检索知识库并显示来源。
 - 知识库未命中时转通用回答。
-- 刷新页面后，独立助手历史仍可从服务端恢复。
-- 助手历史不会出现在五阶段对话中。
+- 关闭悬浮窗再打开，只保留最近 5 轮临时查阅历史。
+- Copilot 历史不会出现在五阶段对话中，左侧未归档草稿也不会进入 Copilot。
 
 ## 环境变量
 
@@ -191,7 +192,7 @@ docker compose down -v
 pytest -q
 ```
 
-当前 49 个用例覆盖：
+当前 52 个用例覆盖：
 
 - 文档解析、切片长度、sheet/行号/chunk index。
 - 检索结果映射、相似度阈值、关键词兜底。
@@ -201,6 +202,7 @@ pytest -q
 - 仪表盘统计、排序、阶段映射与旧数据字段兼容。
 - 首页/工作台页面路由、缺失项目重定向、返回首页确认元素。
 - 项目 PATCH/DELETE、删除失败保留项目与日志、历史迁移/清空/重生成、来源详情。
+- 阶段 Agent / 全局 Copilot 提示词边界、未归档草稿隔离、独立短历史。
 - Word/Excel 标题、列表、表格、文件名与解析失败降级。
 - 售前评估、上线问题、门禁确认、模板注入与旧数据兼容。
 
@@ -226,7 +228,7 @@ stream=True stream_error=False
 - `storage/documents.json`：文档登记。
 - `storage/uploads/`：原始上传文件。
 - `storage/vector_index.json`：内存切片索引快照。
-- `storage/assistant_history.json`：全局 AI 小助手独立历史。
+- `storage/assistant_history.json`：全局 Copilot 独立短历史（最近 5 轮）。
 
 Docker 中统一放在 `/data` 持久卷。
 

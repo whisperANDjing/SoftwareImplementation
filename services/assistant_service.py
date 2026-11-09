@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""全局 AI 小助手服务。
+"""右侧全局 Copilot 服务（临时查阅区）。
 
-与阶段 Agent 的区别：
+与左侧阶段 Agent 的边界：
 - 不绑定 stage，不读写阶段对话历史；
-- 默认先检索项目知识库，检索为空或失败时允许通用模型回答；
-- 历史单独存放在 data/assistant_store.py；
+- 不注入当前阶段未归档草稿，只使用已归档摘要和检索到的文档；
+- 历史独立存放在 data/assistant_store.py，只保留最近几轮；
 - 同时支持普通 JSON 与 SSE 流式返回。
 """
 
@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from config import MAX_HISTORY_MESSAGES
+from config import ASSISTANT_MAX_HISTORY_MESSAGES
 from data import assistant_store, context_store
 from errors import ApiError, LlmCallError, LlmNotConfigured
 from services import llm_service, project_deletion_service, retrieval_service
@@ -29,15 +29,19 @@ from services.stage_prompts import (
 log = logging.getLogger("aps-workbench.assistant")
 
 
-ASSISTANT_SYSTEM_PROMPT = """你是「APS 实施顾问 AI 工作台」的全局 AI 小助手，可以随时回答用户关于 APS、排产、项目推进和当前客户的问题。
+ASSISTANT_SYSTEM_PROMPT = """你是项目的全局知识助手（Global Copilot）。你的任务是根据已有的项目文档、归档摘要和通用 APS 知识，快问快答。
+不要主动生成长篇大论的方案，直接回答用户的具体问题。
 
-## 回答原则
-1. 先判断问题是否与当前项目知识库有关；如果检索到了文档片段，优先使用片段回答，并用 [1]、[2] 标注引用。
-2. 如果检索为空或检索片段不足以回答，则使用通用 APS 知识与通用大模型能力回答；此时必须明确说明“当前知识库未检索到直接依据”，不得把通用建议包装成项目文档事实。
-3. 不得编造客户数据、文件名、页码、行号、指标数值或系统能力。
-4. 回答直接、简洁、可执行，使用中文 Markdown；不要套用五阶段交付物的固定章节模板。
-5. 如果用户问题与 APS 无关，也可以正常回答，但要说明这是通用助手回答，不表示项目文档中有此内容。
-6. 项目归档是项目背景，不是文档来源；只有 sources 中的片段可作为文档依据。"""
+## 职责边界
+1. 这里是「临时查阅区」，不是阶段交付物生成器；不要主动生成或修改阶段文档，也不要套用五阶段交付物的固定章节模板。
+2. 不读取、不引用左侧当前阶段未归档的草稿对话，避免污染全局查阅结果。
+3. 只使用已归档摘要、项目文档检索结果和通用 APS 知识；没有依据时明确说明。
+4. 回答优先简短、直接、可执行；一般 1–3 段或少量要点即可，除非用户明确要求展开。
+5. 如果检索到了文档片段，优先使用片段回答，并用 [1]、[2] 标注引用。
+6. 如果检索为空或片段不足，可以使用通用 APS 知识，但必须说明“当前知识库未检索到直接依据”，不得把通用建议包装成项目文档事实。
+7. 不得编造客户数据、文件名、页码、行号、指标数值或系统能力。
+8. 项目归档是项目背景，不是文档来源；只有 sources 中的片段可作为文档依据。
+9. 左侧阶段 Agent 的历史与这里完全隔离；不把阶段对话、阶段草稿或未归档输出带入本轮回答。"""
 
 
 def _local_general_reply(project: Dict[str, Any], message: str) -> str:
@@ -47,7 +51,7 @@ def _local_general_reply(project: Dict[str, Any], message: str) -> str:
     greeting = any(word in text for word in ("你好", "您好", "hello", "hi"))
     if greeting:
         return (
-            f"你好，我是 {client} 的全局 AI 小助手。"
+            f"你好，我是 {client} 的全局 Copilot。"
             "你可以问我项目文档、APS 排产规则、实施推进或一般性问题。"
             "当前未配置 `DEEPSEEK_API_KEY`，通用问答暂由本地演示模式兜底；"
             "上传文档后，涉及项目事实的问题会优先检索知识库。"
@@ -86,7 +90,9 @@ def _prepare(project_id: str, message: str) -> Dict[str, Any]:
         log.exception("小助手检索异常")
 
     stage = int(project.get("active_stage", 1))
-    context = project_context_prompt(project, stage)
+    context = project_context_prompt(
+        project, stage, include_initial_context=False
+    )
     source_block = format_retrieved_sources(sources)
 
     prompt_parts = [
@@ -109,7 +115,9 @@ def _prepare(project_id: str, message: str) -> Dict[str, Any]:
 - 不要虚构项目文档内容。"""
         )
 
-    history = assistant_store.last_messages(project_id, MAX_HISTORY_MESSAGES)
+    history = assistant_store.last_messages(
+        project_id, ASSISTANT_MAX_HISTORY_MESSAGES
+    )
     return {
         "project": project,
         "sources": sources,

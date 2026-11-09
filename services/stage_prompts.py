@@ -67,6 +67,17 @@ STAGE_API_KEYS: Dict[int, str] = {
 }
 
 
+STAGE_AGENT_BOUNDARY = """## 阶段 Agent 职责边界
+- 你是负责【当前阶段】的专家，不是全局聊天助手。
+- 你的任务是生成或修改当前阶段的交付物；回答要围绕当前阶段目标。
+- 输出必须是结构化文档格式，随时准备被归档。
+- 不要替其他阶段生成完整交付物；跨阶段信息只用于引用和衔接。"""
+
+STAGE_DOC_QA_BOUNDARY = """## 阶段 Agent 职责边界
+- 你是当前阶段专家，当前处于文档问答模式。
+- 回答当前阶段相关的文档问题，不要扩展成其他阶段的交付物。
+- 不得把自己当成全局 Copilot；需要跨阶段长方案时，回到阶段生成模式。"""
+
 STAGE_PROMPTS: Dict[int, str] = {
     1: """你是「APS 实施顾问 AI 工作台」的阶段一顾问，任务是完成客户现状调研与需求诊断。
 
@@ -213,7 +224,11 @@ def plain_excerpt(text: str, limit: int = 420) -> str:
     return value[:limit] + ("……" if len(value) > limit else "")
 
 
-def project_context_prompt(project: Dict[str, Any], current_stage: int) -> str:
+def project_context_prompt(
+    project: Dict[str, Any],
+    current_stage: int,
+    include_initial_context: bool = True,
+) -> str:
     """拼接客户基本信息与各阶段归档摘要。"""
     lines = [
         "## 客户与项目基本信息",
@@ -232,7 +247,7 @@ def project_context_prompt(project: Dict[str, Any], current_stage: int) -> str:
         stage_state = project["stages"][str(stage_id)]
         initial_context = stage_state.get("initial_context") or {}
         initial_content = str(initial_context.get("content", "")).strip()
-        if initial_content:
+        if initial_content and include_initial_context:
             lines.extend(
                 [
                     f"### 【阶段{stage_id}历史模板带入】{stage['name']}（尚未归档）",
@@ -283,6 +298,7 @@ def build_stage_system_prompt(project: Dict[str, Any], stage: int) -> str:
     stage_meta = STAGE_BY_ID[stage]
     return "\n\n".join(
         [
+            STAGE_AGENT_BOUNDARY,
             STAGE_PROMPTS[stage],
             APS_DOMAIN_RULES,
             project_context_prompt(project, stage),
@@ -351,6 +367,11 @@ def build_rag_system_prompt(
 ) -> str:
     """拼装 RAG / stage 两种模式的系统提示词。"""
     parts = [
+        (
+            STAGE_AGENT_BOUNDARY
+            if answer_mode == "stage"
+            else STAGE_DOC_QA_BOUNDARY
+        ),
         STAGE_PROMPTS[stage],
         APS_DOMAIN_RULES,
         project_context_prompt(project, stage),

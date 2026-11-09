@@ -37,7 +37,9 @@ def _load() -> Dict[str, List[Dict[str, Any]]]:
         if not isinstance(data, dict):
             raise ValueError("assistant_history.json 顶层必须是对象")
         return {
-            str(project_id): [item for item in messages if isinstance(item, dict)]
+            str(project_id): [
+                item for item in messages if isinstance(item, dict)
+            ][-ASSISTANT_MAX_HISTORY_MESSAGES:]
             for project_id, messages in data.items()
             if isinstance(messages, list)
         }

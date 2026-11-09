@@ -665,9 +665,7 @@
     const answerMode = effectiveAnswerMode();
     const hasDocs = hasIndexedDocuments();
     const ragMode = answerMode === "rag";
-    const placeholder = ragMode
-      ? "针对已上传文档提问，例如：这个文件里排产周期是多少？"
-      : STAGE_PLACEHOLDERS[state.activeStage] || "输入补充信息或追问…";
+    const placeholder = "输入补充信息或要求生成当前阶段交付物...";
     const label = secondary
       ? ragMode
         ? "补充信息 / 文档问答"
@@ -2385,9 +2383,11 @@
 
   function openAssistant() {
     if (!state.project) {
-      showToast("请先创建或选择项目，再使用 AI 小助手。", "warning");
+      showToast("请先创建或选择项目，再使用全局 Copilot。", "warning");
       return;
     }
+    // 临时查阅区只展示最近 5 轮，避免把完整阶段历史带入右侧。
+    state.assistantMessages = state.assistantMessages.slice(-10);
     updateAssistantProjectLabel();
     state.assistantOpen = true;
     document.body.classList.add("assistant-open");
@@ -2437,7 +2437,7 @@
       );
       if (!state.project || state.project.id !== projectId) return;
       state.assistantMessages = Array.isArray(data.messages)
-        ? data.messages
+        ? data.messages.slice(-10)
         : [];
     } catch (error) {
       if (state.project && state.project.id === projectId) {
@@ -2538,11 +2538,11 @@
       box.innerHTML = `
         <div class="assistant-welcome">
           <div class="assistant-welcome-icon">${ASSISTANT_ROBOT_SVG}</div>
-          <h3>随时问我</h3>
-          <p>我会优先检索当前项目知识库；没有命中时转通用模型回答。这里的历史与五阶段工作流完全分开保存。</p>
+          <h3>临时查阅</h3>
+          <p>我是全局 Copilot，只做项目文档和 APS 知识快问快答。左侧阶段对话、未归档草稿不会进入这里，这里的历史也不会影响阶段交付物。</p>
           <div class="assistant-suggestions">
             <button type="button" data-assistant-suggestion="这个项目目前最关键的排产约束是什么？">这个项目目前最关键的排产约束是什么？</button>
-            <button type="button" data-assistant-suggestion="帮我梳理下一步实施动作">帮我梳理下一步实施动作</button>
+            <button type="button" data-assistant-suggestion="这个项目已归档的关键结论有哪些？">这个项目已归档的关键结论有哪些？</button>
             <button type="button" data-assistant-suggestion="项目文档里有哪些关键参数？">项目文档里有哪些关键参数？</button>
           </div>
         </div>

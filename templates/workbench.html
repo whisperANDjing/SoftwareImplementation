@@ -271,7 +271,7 @@
     </main>
   </div>
 
-  <button type="button" class="assistant-fab" id="assistant-fab" aria-label="打开全局 AI 小助手" title="AI 小助手">
+  <button type="button" class="assistant-fab" id="assistant-fab" aria-label="打开全局 Copilot" title="全局 Copilot">
     <span class="assistant-fab-glow" aria-hidden="true"></span>
     <svg class="assistant-robot" viewBox="0 0 32 32" fill="none" aria-hidden="true">
       <path d="M16 7V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -285,7 +285,7 @@
     <span class="assistant-fab-dot" aria-hidden="true"></span>
   </button>
 
-  <section class="assistant-drawer" id="assistant-drawer" hidden aria-label="全局 AI 小助手">
+  <section class="assistant-drawer" id="assistant-drawer" hidden aria-label="全局 Copilot">
     <header class="assistant-header">
       <div class="assistant-avatar" aria-hidden="true">
         <svg class="assistant-robot" viewBox="0 0 32 32" fill="none">
@@ -300,18 +300,22 @@
       </div>
       <div class="assistant-heading">
         <span class="kicker">GLOBAL COPILOT</span>
-        <h2>APS 智能助手</h2>
+        <h2>全局 Copilot</h2>
         <p id="assistant-project-label">当前项目</p>
       </div>
-      <button type="button" class="icon-btn assistant-close" id="assistant-close-btn" aria-label="关闭 AI 小助手" title="关闭">×</button>
+      <button type="button" class="icon-btn assistant-close" id="assistant-close-btn" aria-label="关闭 Copilot" title="关闭">×</button>
     </header>
+
+    <div class="assistant-boundary-note">
+      [临时查阅区] 这里的对话不会影响左侧阶段交付物的生成与归档。
+    </div>
 
     <div class="assistant-messages" id="assistant-messages" aria-live="polite"></div>
 
     <form class="assistant-form" id="assistant-form">
-      <textarea id="assistant-input" rows="2" maxlength="8000" placeholder="随时提问：项目文档、排产规则、实施推进……"></textarea>
+      <textarea id="assistant-input" rows="2" maxlength="8000" placeholder="快问快答：查阅文档细节、询问 APS 知识..."></textarea>
       <div class="assistant-form-foot">
-        <span>项目知识库优先 · 未命中转通用回答</span>
+        <span>独立短历史 · 不参与阶段归档</span>
         <button type="submit" class="btn btn-primary btn-sm" id="assistant-send-btn">发送</button>
       </div>
     </form>

@@ -802,9 +802,9 @@ HTTP `201`
 
 ---
 
-### 4.7 POST /api/assistant/chat（全局 AI 小助手）
+### 4.7 POST /api/assistant/chat（全局 Copilot / 临时查阅区）
 
-独立于五阶段工作流的全局助手接口。不接收或绑定 `stage`，历史按 `project_id` 单独存储，不写入阶段 `messages`。
+独立于五阶段工作流的全局 Copilot 接口。不接收或绑定 `stage`，历史按 `project_id` 单独存储，不写入阶段 `messages`。
 
 #### 请求
 
@@ -832,8 +832,10 @@ Content-Type: application/json
 1. 默认按 `answer_mode="rag"` 调同一个 `retrieval_service` 检索当前项目知识库。
 2. 检索命中：返回 `sources`，要求 DeepSeek 使用 `[n]` 引用；无 Key 时使用本地抽取式回答。
 3. 检索为空或失败：不返回“当前知识库中没有相关信息”作为最终答案，而是继续调用通用大模型回答；`sources: []`、`grounded: false`。无 Key 时使用本地通用兜底。
-4. 历史只从 `storage/assistant_history.json` 读取，不读取阶段历史；与阶段 Agent 的检索服务、内存切片索引、top-k 和相似度门槛一致，区别在提示词、无命中兜底方式和历史隔离。
-5. 每轮完成后写入独立助手历史；阶段对话完全不受影响。
+4. 上下文只注入项目基本信息、已归档阶段摘要和检索到的文档；不注入当前阶段未归档对话、草稿或 `initial_context` 模板。
+5. 历史只从 `storage/assistant_history.json` 读取，不读取阶段历史；只保留最近 5 轮（10 条消息），关闭悬浮窗再打开不会恢复完整阶段式历史。
+6. 每轮完成后写入独立 Copilot 历史；阶段对话完全不受影响。
+7. Copilot 定位是快问快答，不主动生成阶段交付物；需要正式交付物时使用左侧阶段 Agent。
 
 #### JSON 响应
 
@@ -892,7 +894,7 @@ data: {"ok":false,"code":"PROJECT_NOT_FOUND","message":"……","data":null,"err
 
 ### 4.8 GET /api/assistant/history/{project_id}
 
-返回全局助手独立历史，供悬浮窗重新打开或页面刷新后恢复。
+返回全局 Copilot 独立短历史，最多最近 5 轮（10 条消息），供悬浮窗重新打开或页面刷新后恢复。
 
 ```json
 {
@@ -910,7 +912,7 @@ data: {"ok":false,"code":"PROJECT_NOT_FOUND","message":"……","data":null,"err
 }
 ```
 
-> 该历史与 `/api/context` 中五阶段 `messages` 完全分离。
+> 该历史与 `/api/context` 中五阶段 `messages` 完全分离；不包含左侧未归档草稿。
 
 ---
 
